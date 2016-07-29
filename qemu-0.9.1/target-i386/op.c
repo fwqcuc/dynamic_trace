@@ -20,6 +20,7 @@
 
 #define ASM_SOFTMMU
 #include "exec.h"
+#include "TEMU_main.h"
 
 /* n must be a constant to be efficient */
 static inline target_long lshift(target_long x, int n)
@@ -34,49 +35,97 @@ static inline target_long lshift(target_long x, int n)
 
 #define REG EAX
 #define REGNAME _EAX
+#if TAINT_ENABLED
+#define NB_REG R_EAX
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG ECX
 #define REGNAME _ECX
+#if TAINT_ENABLED
+#define NB_REG R_ECX
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG EDX
 #define REGNAME _EDX
+#if TAINT_ENABLED
+#define NB_REG R_EDX
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG EBX
 #define REGNAME _EBX
+#if TAINT_ENABLED
+#define NB_REG R_EBX
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG ESP
 #define REGNAME _ESP
+#if TAINT_ENABLED
+#define NB_REG R_ESP
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG EBP
 #define REGNAME _EBP
+#if TAINT_ENABLED
+#define NB_REG R_EBP
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG ESI
 #define REGNAME _ESI
+#if TAINT_ENABLED
+#define NB_REG R_ESI
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG EDI
 #define REGNAME _EDI
+#if TAINT_ENABLED
+#define NB_REG R_EDI
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
@@ -84,49 +133,97 @@ static inline target_long lshift(target_long x, int n)
 
 #define REG (env->regs[8])
 #define REGNAME _R8
+#if TAINT_ENABLED
+#define NB_REG 8
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG (env->regs[9])
 #define REGNAME _R9
+#if TAINT_ENABLED
+#define NB_REG 9
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG (env->regs[10])
 #define REGNAME _R10
+#if TAINT_ENABLED
+#define NB_REG 10
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG (env->regs[11])
 #define REGNAME _R11
+#if TAINT_ENABLED
+#define NB_REG 11
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG (env->regs[12])
 #define REGNAME _R12
+#if TAINT_ENABLED
+#define NB_REG 12
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG (env->regs[13])
 #define REGNAME _R13
+#if TAINT_ENABLED
+#define NB_REG 13
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG (env->regs[14])
 #define REGNAME _R14
+#if TAINT_ENABLED
+#define NB_REG 14
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
 #define REG (env->regs[15])
 #define REGNAME _R15
+#if TAINT_ENABLED
+#define NB_REG 15
+#endif
 #include "opreg_template.h"
+#if TAINT_ENABLED
+#undef NB_REG
+#endif
 #undef REG
 #undef REGNAME
 
@@ -139,35 +236,57 @@ void OPPROTO op_update2_cc(void)
 {
     CC_SRC = T1;
     CC_DST = T0;
+#if TAINT_FLAGS
+  taintcheck_reg2reg(R_T1, R_CC_SRC, 4);
+  taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif	
 }
 
 /* update flags with T0 (logic operation case) */
 void OPPROTO op_update1_cc(void)
 {
     CC_DST = T0;
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif	
 }
 
 void OPPROTO op_update_neg_cc(void)
 {
     CC_SRC = -T0;
     CC_DST = T0;
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_T0, R_CC_SRC, 4);
+    taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif	
 }
 
 void OPPROTO op_cmpl_T0_T1_cc(void)
 {
     CC_SRC = T1;
     CC_DST = T0 - T1;
+#if TAINT_FLAGS
+	taintcheck_reg2reg(R_T1, R_CC_SRC, 4);
+	taintcheck_fn2regs(R_T0, R_T1, R_CC_DST, 4);
+#endif	
 }
 
 void OPPROTO op_update_inc_cc(void)
 {
     CC_SRC = cc_table[CC_OP].compute_c();
     CC_DST = T0;
+#if TAINT_FLAGS
+    taintcheck_reg_clean(R_CC_SRC);
+    taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif	
 }
 
 void OPPROTO op_testl_T0_T1_cc(void)
 {
     CC_DST = T0 & T1;
+#if TAINT_FLAGS
+    taintcheck_fn2regs(R_T0, R_T1, R_CC_DST, 4);
+#endif	
 }
 
 /* operations without flags */
@@ -175,26 +294,41 @@ void OPPROTO op_testl_T0_T1_cc(void)
 void OPPROTO op_addl_T0_T1(void)
 {
     T0 += T1;
+#if TAINT_ENABLED 
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#endif
 }
 
 void OPPROTO op_orl_T0_T1(void)
 {
     T0 |= T1;
+#if TAINT_ENABLED 
+	taintcheck_logic_T0_T1();
+#endif
 }
 
 void OPPROTO op_andl_T0_T1(void)
 {
     T0 &= T1;
+#if TAINT_ENABLED
+    taintcheck_logic_T0_T1();
+#endif
 }
 
 void OPPROTO op_subl_T0_T1(void)
 {
     T0 -= T1;
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#endif
 }
 
 void OPPROTO op_xorl_T0_T1(void)
 {
     T0 ^= T1;
+#if TAINT_ENABLED
+	taintcheck_logic_T0_T1();
+#endif
 }
 
 void OPPROTO op_negl_T0(void)
@@ -220,6 +354,9 @@ void OPPROTO op_notl_T0(void)
 void OPPROTO op_bswapl_T0(void)
 {
     T0 = bswap32(T0);
+#if TAINT_ENABLED
+    taintcheck_bswap(R_T0, 4);
+#endif
 }
 
 #ifdef TARGET_X86_64
@@ -241,6 +378,14 @@ void OPPROTO op_mulb_AL_T0(void)
     EAX = (EAX & ~0xffff) | res;
     CC_DST = res;
     CC_SRC = (res & 0xff00);
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_EAX, R_EAX, 1);
+    taintcheck_reg2reg_shift(R_EAX*4, R_EAX*4+1, 1);
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_EAX, R_CC_SRC, 1);
+    taintcheck_reg2reg(R_EAX, R_CC_DST, 1);
+#endif	
+#endif
 }
 
 void OPPROTO op_imulb_AL_T0(void)
@@ -250,6 +395,14 @@ void OPPROTO op_imulb_AL_T0(void)
     EAX = (EAX & ~0xffff) | (res & 0xffff);
     CC_DST = res;
     CC_SRC = (res != (int8_t)res);
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_EAX, R_EAX, 1);
+    taintcheck_reg2reg_shift(R_EAX*4, R_EAX*4+1, 1);
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_EAX, R_CC_SRC, 1);
+    taintcheck_reg2reg(R_EAX, R_CC_DST, 1);
+#endif	
+#endif
 }
 
 void OPPROTO op_mulw_AX_T0(void)
@@ -260,6 +413,14 @@ void OPPROTO op_mulw_AX_T0(void)
     EDX = (EDX & ~0xffff) | ((res >> 16) & 0xffff);
     CC_DST = res;
     CC_SRC = res >> 16;
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_EAX, R_EAX, 2);
+    taintcheck_reg2reg(R_EAX, R_EDX, 2);
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_EAX, R_CC_SRC, 2);
+    taintcheck_reg2reg(R_EAX, R_CC_DST, 2);
+#endif	
+#endif
 }
 
 void OPPROTO op_imulw_AX_T0(void)
@@ -270,6 +431,14 @@ void OPPROTO op_imulw_AX_T0(void)
     EDX = (EDX & ~0xffff) | ((res >> 16) & 0xffff);
     CC_DST = res;
     CC_SRC = (res != (int16_t)res);
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_EAX, R_EAX, 2);
+    taintcheck_reg2reg(R_EAX, R_EDX, 2);
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_EAX, R_CC_SRC, 2);
+    taintcheck_reg2reg(R_EAX, R_CC_DST, 2);
+#endif	
+#endif
 }
 
 void OPPROTO op_mull_EAX_T0(void)
@@ -280,6 +449,14 @@ void OPPROTO op_mull_EAX_T0(void)
     EDX = (uint32_t)(res >> 32);
     CC_DST = (uint32_t)res;
     CC_SRC = (uint32_t)(res >> 32);
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_EAX, R_EAX, 4);
+    taintcheck_reg2reg(R_EAX, R_EDX, 4);
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_EAX, R_CC_SRC, 4);
+    taintcheck_reg2reg(R_EAX, R_CC_DST, 4);
+#endif	
+#endif
 }
 
 void OPPROTO op_imull_EAX_T0(void)
@@ -290,6 +467,14 @@ void OPPROTO op_imull_EAX_T0(void)
     EDX = (uint32_t)(res >> 32);
     CC_DST = res;
     CC_SRC = (res != (int32_t)res);
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_EAX, R_EAX, 4);
+    taintcheck_reg2reg(R_EAX, R_EDX, 4);
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_EAX, R_CC_SRC, 4);
+    taintcheck_reg2reg(R_EAX, R_CC_DST, 4);
+#endif	
+#endif
 }
 
 void OPPROTO op_imulw_T0_T1(void)
@@ -299,6 +484,14 @@ void OPPROTO op_imulw_T0_T1(void)
     T0 = res;
     CC_DST = res;
     CC_SRC = (res != (int16_t)res);
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, 2);
+    taintcheck_reg2reg_shift(R_T0*4, R_T0*4+2, 2);
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_T0, R_CC_SRC, 2);
+    taintcheck_reg2reg(R_T0, R_CC_DST, 2);
+#endif	
+#endif
 }
 
 void OPPROTO op_imull_T0_T1(void)
@@ -308,6 +501,13 @@ void OPPROTO op_imull_T0_T1(void)
     T0 = res;
     CC_DST = res;
     CC_SRC = (res != (int32_t)res);
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_T0, R_CC_SRC, 4);
+    taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif	
+#endif
 }
 
 #ifdef TARGET_X86_64
@@ -344,6 +544,10 @@ void OPPROTO op_divb_AL_T0(void)
     q &= 0xff;
     r = (num % den) & 0xff;
     EAX = (EAX & ~0xffff) | (r << 8) | q;
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_EAX, R_EAX, 1);
+    taintcheck_reg2reg_shift(R_EAX*4, R_EAX*4+1, 1);
+#endif
 }
 
 void OPPROTO op_idivb_AL_T0(void)
@@ -361,6 +565,10 @@ void OPPROTO op_idivb_AL_T0(void)
     q &= 0xff;
     r = (num % den) & 0xff;
     EAX = (EAX & ~0xffff) | (r << 8) | q;
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_EAX, R_EAX, 1);
+    taintcheck_reg2reg_shift(R_EAX*4, R_EAX*4+1, 1);
+#endif
 }
 
 void OPPROTO op_divw_AX_T0(void)
@@ -379,6 +587,10 @@ void OPPROTO op_divw_AX_T0(void)
     r = (num % den) & 0xffff;
     EAX = (EAX & ~0xffff) | q;
     EDX = (EDX & ~0xffff) | r;
+#if TAINT_ENABLED
+    taintcheck_fn3regs(R_T0, R_EAX, R_EDX, R_EAX, 2);
+    taintcheck_reg2reg(R_EAX, R_EDX, 2);
+#endif
 }
 
 void OPPROTO op_idivw_AX_T0(void)
@@ -397,6 +609,10 @@ void OPPROTO op_idivw_AX_T0(void)
     r = (num % den) & 0xffff;
     EAX = (EAX & ~0xffff) | q;
     EDX = (EDX & ~0xffff) | r;
+#if TAINT_ENABLED
+    taintcheck_fn3regs(R_T0, R_EAX, R_EDX, R_EAX, 2);
+    taintcheck_reg2reg(R_EAX, R_EDX, 2);
+#endif
 }
 
 void OPPROTO op_divl_EAX_T0(void)
@@ -427,66 +643,106 @@ void OPPROTO op_idivq_EAX_T0(void)
 void OPPROTO op_movl_T0_imu(void)
 {
     T0 = (uint32_t)PARAM1;
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_movl_T0_im(void)
 {
     T0 = (int32_t)PARAM1;
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_addl_T0_im(void)
 {
     T0 += PARAM1;
+#if TAINT_ENABLED	
+    taintcheck_fn1reg(R_T0, 4);
+#endif
 }
 
 void OPPROTO op_andl_T0_ffff(void)
 {
     T0 = T0 & 0xffff;
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_T0*4+2, 2);
+#endif
 }
 
 void OPPROTO op_andl_T0_im(void)
 {
     T0 = T0 & PARAM1;
+#if TAINT_ENABLED	
+    taintcheck_fn1reg(R_T0, 4);
+#endif
 }
 
 void OPPROTO op_movl_T0_T1(void)
 {
     T0 = T1;
+#if TAINT_ENABLED
+    taintcheck_reg2reg(R_T1, R_T0, 4);
+#endif
 }
 
 void OPPROTO op_movl_T1_imu(void)
 {
     T1 = (uint32_t)PARAM1;
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T1);
+#endif
 }
 
 void OPPROTO op_movl_T1_im(void)
 {
     T1 = (int32_t)PARAM1;
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T1);
+#endif
 }
 
 void OPPROTO op_addl_T1_im(void)
 {
     T1 += PARAM1;
+#if TAINT_ENABLED 
+    taintcheck_fn1reg(R_T1, 4);
+#endif
 }
 
 void OPPROTO op_movl_T1_A0(void)
 {
     T1 = A0;
+#if TAINT_ENABLED
+    taintcheck_reg2reg(R_A0, R_T1, 4);
+#endif
 }
 
 void OPPROTO op_movl_A0_im(void)
 {
     A0 = (uint32_t)PARAM1;
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_A0);
+#endif
+
 }
 
 void OPPROTO op_addl_A0_im(void)
 {
     A0 = (uint32_t)(A0 + PARAM1);
+#if 0 //TAINT_ENABLED 
+    taintcheck_fn1reg(R_A0, 4);
+#endif
 }
 
 void OPPROTO op_movl_A0_seg(void)
 {
     A0 = (uint32_t)*(target_ulong *)((char *)env + PARAM1);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_A0);
+#endif
 }
 
 void OPPROTO op_addl_A0_seg(void)
@@ -497,6 +753,9 @@ void OPPROTO op_addl_A0_seg(void)
 void OPPROTO op_addl_A0_AL(void)
 {
     A0 = (uint32_t)(A0 + (EAX & 0xff));
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_A0, R_EAX, R_A0, 1);
+#endif
 }
 
 #ifdef WORDS_BIGENDIAN
@@ -573,6 +832,9 @@ void OPPROTO op_addq_A0_AL(void)
 void OPPROTO op_andl_A0_ffff(void)
 {
     A0 = A0 & 0xffff;
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_A0*4+2, 2);
+#endif
 }
 
 /* memory access */
@@ -592,6 +854,9 @@ void OPPROTO op_andl_A0_ffff(void)
 
 void OPPROTO op_jmp_T0(void)
 {
+#if TAINT_ENABLED 
+    taintcheck_check_eip(R_T0);
+#endif    
     EIP = T0;
 }
 
@@ -738,6 +1003,9 @@ void OPPROTO op_single_step(void)
 void OPPROTO op_movl_T0_0(void)
 {
     T0 = 0;
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_exit_tb(void)
@@ -774,26 +1042,41 @@ void OPPROTO op_exit_tb(void)
 void OPPROTO op_movsbl_T0_T0(void)
 {
     T0 = (int8_t)T0;
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_T0*4+1, 3);
+#endif
 }
 
 void OPPROTO op_movzbl_T0_T0(void)
 {
     T0 = (uint8_t)T0;
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_T0*4+1, 3);
+#endif
 }
 
 void OPPROTO op_movswl_T0_T0(void)
 {
     T0 = (int16_t)T0;
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_T0*4+2, 2);
+#endif
 }
 
 void OPPROTO op_movzwl_T0_T0(void)
 {
     T0 = (uint16_t)T0;
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_T0*4+2, 2);
+#endif
 }
 
 void OPPROTO op_movswl_EAX_AX(void)
 {
     EAX = (uint32_t)((int16_t)EAX);
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_EAX*4+2, 2);
+#endif
 }
 
 #ifdef TARGET_X86_64
@@ -811,16 +1094,29 @@ void OPPROTO op_movslq_RAX_EAX(void)
 void OPPROTO op_movsbw_AX_AL(void)
 {
     EAX = (EAX & ~0xffff) | ((int8_t)EAX & 0xffff);
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_EAX*4+1, 1);
+	taintcheck_fn1reg(R_EAX, 2);
+#endif
 }
 
 void OPPROTO op_movslq_EDX_EAX(void)
 {
     EDX = (uint32_t)((int32_t)EAX >> 31);
+#if TAINT_ENABLED 
+    taintcheck_reg_clean(R_EDX);
+    taintcheck_reg2reg_shift(R_EAX*4+3, R_EDX*4, 1);
+	taintcheck_fn1reg(R_EDX, 4);
+#endif
 }
 
 void OPPROTO op_movswl_DX_AX(void)
 {
     EDX = (EDX & ~0xffff) | (((int16_t)EAX >> 15) & 0xffff);
+#if TAINT_ENABLED 
+    taintcheck_reg2reg_shift(R_EAX*4+1, R_EDX*4, 1); 
+    taintcheck_reg2reg_shift(R_EDX*4, R_EDX*4+1, 1);
+#endif
 }
 
 #ifdef TARGET_X86_64
@@ -835,31 +1131,53 @@ void OPPROTO op_movsqo_RDX_RAX(void)
 void OPPROTO op_addl_ESI_T0(void)
 {
     ESI = (uint32_t)(ESI + T0);
+#if 0// TAINT_ENABLED 
+    taintcheck_fn2regs(R_ESI, R_T0, R_ESI, 4);
+#endif
+
 }
 
 void OPPROTO op_addw_ESI_T0(void)
 {
     ESI = (ESI & ~0xffff) | ((ESI + T0) & 0xffff);
+#if 0 //TAINT_ENABLED 
+    taintcheck_fn2regs(R_ESI, R_T0, R_ESI, 2);
+#endif
 }
 
 void OPPROTO op_addl_EDI_T0(void)
 {
     EDI = (uint32_t)(EDI + T0);
+#if 0 //TAINT_ENABLED 
+    taintcheck_fn2regs(R_EDI, R_T0, R_EDI, 4);
+#endif
+
 }
 
 void OPPROTO op_addw_EDI_T0(void)
 {
     EDI = (EDI & ~0xffff) | ((EDI + T0) & 0xffff);
+#if 0 //TAINT_ENABLED 
+    taintcheck_fn2regs(R_EDI, R_T0, R_EDI, 2);
+#endif
+
 }
 
 void OPPROTO op_decl_ECX(void)
 {
     ECX = (uint32_t)(ECX - 1);
+#if TAINT_ENABLED
+    if(ECX == 0) taintcheck_reg_clean(R_ECX);
+#endif
 }
 
 void OPPROTO op_decw_ECX(void)
 {
     ECX = (ECX & ~0xffff) | ((ECX - 1) & 0xffff);
+#if TAINT_ENABLED
+    if((ECX&0xffff) == 0) taintcheck_reg_clean2(R_ECX*4, 2);
+#endif
+
 }
 
 #ifdef TARGET_X86_64
@@ -1029,6 +1347,9 @@ void OPPROTO op_aad(void)
     ah = (EAX >> 8) & 0xff;
     al = ((ah * base) + al) & 0xff;
     EAX = (EAX & ~0xffff) | al;
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_EAX*4+1, 1);
+#endif    
     CC_DST = al;
 }
 
@@ -1165,6 +1486,9 @@ void OPPROTO op_movl_seg_T0_vm(void)
 void OPPROTO op_movl_T0_seg(void)
 {
     T0 = env->segs[PARAM1].selector;
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_lsl(void)
@@ -1193,8 +1517,16 @@ void OPPROTO op_arpl(void)
         /* XXX: emulate bug or 0xff3f0000 oring as in bochs ? */
         T0 = (T0 & ~3) | (T1 & 3);
         T1 = CC_Z;
+#if TAINT_ENABLED
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, 1);
+        taintcheck_reg_clean(R_T1);
+#endif
+
    } else {
         T1 = 0;
+#if TAINT_ENABLED
+        taintcheck_reg_clean(R_T1);
+#endif
     }
     FORCE_RET();
 }
@@ -1204,6 +1536,9 @@ void OPPROTO op_arpl_update(void)
     int eflags;
     eflags = cc_table[CC_OP].compute_all();
     CC_SRC = (eflags & ~CC_Z) | T1;
+#if TAINT_FLAGS
+    taintcheck_reg2reg(R_T1, R_CC_SRC, 4);
+#endif
 }
 
 /* T0: segment, T1:eip */
@@ -1297,6 +1632,9 @@ void OPPROTO op_svm_check_intercept_io(void)
 void OPPROTO op_movtl_T0_cr8(void)
 {
     T0 = cpu_get_apic_tpr(env);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 #endif
 
@@ -1312,6 +1650,9 @@ void OPPROTO op_lmsw_T0(void)
        if already set to one. */
     T0 = (env->cr[0] & ~0xe) | (T0 & 0xf);
     helper_movl_crN_T0(0);
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(R_T0*4+1, 3);
+#endif
 }
 
 void OPPROTO op_invlpg_A0(void)
@@ -1322,6 +1663,9 @@ void OPPROTO op_invlpg_A0(void)
 void OPPROTO op_movl_T0_env(void)
 {
     T0 = *(uint32_t *)((char *)env + PARAM1);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_movl_env_T0(void)
@@ -1337,6 +1681,9 @@ void OPPROTO op_movl_env_T1(void)
 void OPPROTO op_movtl_T0_env(void)
 {
     T0 = *(target_ulong *)((char *)env + PARAM1);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_movtl_env_T0(void)
@@ -1347,6 +1694,9 @@ void OPPROTO op_movtl_env_T0(void)
 void OPPROTO op_movtl_T1_env(void)
 {
     T1 = *(target_ulong *)((char *)env + PARAM1);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T1);
+#endif
 }
 
 void OPPROTO op_movtl_env_T1(void)
@@ -1397,11 +1747,17 @@ void OPPROTO op_seto_T0_cc(void)
     int eflags;
     eflags = cc_table[CC_OP].compute_all();
     T0 = (eflags >> 11) & 1;
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_O, R_T0*4, 4);
+#endif
 }
 
 void OPPROTO op_setb_T0_cc(void)
 {
     T0 = cc_table[CC_OP].compute_c();
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_C, R_T0*4, 4);
+#endif
 }
 
 void OPPROTO op_setz_T0_cc(void)
@@ -1409,6 +1765,9 @@ void OPPROTO op_setz_T0_cc(void)
     int eflags;
     eflags = cc_table[CC_OP].compute_all();
     T0 = (eflags >> 6) & 1;
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_Z, R_T0*4, 4);
+#endif
 }
 
 void OPPROTO op_setbe_T0_cc(void)
@@ -1416,6 +1775,9 @@ void OPPROTO op_setbe_T0_cc(void)
     int eflags;
     eflags = cc_table[CC_OP].compute_all();
     T0 = (eflags & (CC_Z | CC_C)) != 0;
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_Z | CC_C, R_T0*4, 4);
+#endif
 }
 
 void OPPROTO op_sets_T0_cc(void)
@@ -1423,6 +1785,9 @@ void OPPROTO op_sets_T0_cc(void)
     int eflags;
     eflags = cc_table[CC_OP].compute_all();
     T0 = (eflags >> 7) & 1;
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_S, R_T0*4, 4);
+#endif
 }
 
 void OPPROTO op_setp_T0_cc(void)
@@ -1430,6 +1795,9 @@ void OPPROTO op_setp_T0_cc(void)
     int eflags;
     eflags = cc_table[CC_OP].compute_all();
     T0 = (eflags >> 2) & 1;
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_P, R_T0*4, 4);
+#endif
 }
 
 void OPPROTO op_setl_T0_cc(void)
@@ -1437,6 +1805,9 @@ void OPPROTO op_setl_T0_cc(void)
     int eflags;
     eflags = cc_table[CC_OP].compute_all();
     T0 = ((eflags ^ (eflags >> 4)) >> 7) & 1;
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_S|CC_O, R_T0*4, 4);
+#endif
 }
 
 void OPPROTO op_setle_T0_cc(void)
@@ -1444,6 +1815,9 @@ void OPPROTO op_setle_T0_cc(void)
     int eflags;
     eflags = cc_table[CC_OP].compute_all();
     T0 = (((eflags ^ (eflags >> 4)) & 0x80) || (eflags & CC_Z)) != 0;
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_Z|CC_S|CC_O, R_T0*4, 4);
+#endif
 }
 
 void OPPROTO op_xor_T0_1(void)
@@ -1459,6 +1833,9 @@ void OPPROTO op_set_cc_op(void)
 void OPPROTO op_mov_T0_cc(void)
 {
     T0 = cc_table[CC_OP].compute_all();
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O, R_T0*4, 4);
+#endif
 }
 
 /* XXX: clear VIF/VIP in all ops ? */
@@ -1466,31 +1843,50 @@ void OPPROTO op_mov_T0_cc(void)
 void OPPROTO op_movl_eflags_T0(void)
 {
     load_eflags(T0, (TF_MASK | AC_MASK | ID_MASK | NT_MASK));
+#if TAINT_FLAGS
+    taintcheck_reg2flag(R_T0*4, 4, CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O);
+#endif
 }
 
 void OPPROTO op_movw_eflags_T0(void)
 {
     load_eflags(T0, (TF_MASK | AC_MASK | ID_MASK | NT_MASK) & 0xffff);
+#if TAINT_FLAGS
+    taintcheck_reg2flag(R_T0*4, 2, CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O);
+#endif
 }
 
 void OPPROTO op_movl_eflags_T0_io(void)
 {
     load_eflags(T0, (TF_MASK | AC_MASK | ID_MASK | NT_MASK | IF_MASK));
+#if TAINT_FLAGS
+    taintcheck_reg2flag(R_T0*4, 4, CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O);
+#endif
 }
 
 void OPPROTO op_movw_eflags_T0_io(void)
 {
     load_eflags(T0, (TF_MASK | AC_MASK | ID_MASK | NT_MASK | IF_MASK) & 0xffff);
+#if TAINT_FLAGS
+    taintcheck_reg2flag(R_T0*4, 2, CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O);
+#endif
 }
 
 void OPPROTO op_movl_eflags_T0_cpl0(void)
 {
     load_eflags(T0, (TF_MASK | AC_MASK | ID_MASK | NT_MASK | IF_MASK | IOPL_MASK));
+#if TAINT_FLAGS
+    taintcheck_reg2flag(R_T0*4, 4, CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O);
+#endif
 }
 
 void OPPROTO op_movw_eflags_T0_cpl0(void)
 {
     load_eflags(T0, (TF_MASK | AC_MASK | ID_MASK | NT_MASK | IF_MASK | IOPL_MASK) & 0xffff);
+#if TAINT_FLAGS
+    taintcheck_reg2flag(R_T0*4, 4, CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O);
+#endif
+
 }
 
 #if 0
@@ -1540,6 +1936,12 @@ void OPPROTO op_movb_eflags_T0(void)
     int of;
     of = cc_table[CC_OP].compute_all() & CC_O;
     CC_SRC = (T0 & (CC_S | CC_Z | CC_A | CC_P | CC_C)) | of;
+#if TAINT_ENABLED
+#if TAINT_FLAGS
+    UPDATE_CC_FLAGS(CC_SRC);
+#endif
+    taintcheck_flag2reg( CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O, R_CC_SRC*4, 4);
+#endif
 }
 
 void OPPROTO op_movl_T0_eflags(void)
@@ -1549,6 +1951,9 @@ void OPPROTO op_movl_T0_eflags(void)
     eflags |= (DF & DF_MASK);
     eflags |= env->eflags & ~(VM_MASK | RF_MASK);
     T0 = eflags;
+#if TAINT_ENABLED
+    taintcheck_flag2reg( CC_C|CC_P|CC_A|CC_Z|CC_S|CC_O, R_T0*4, 4);
+#endif
 }
 
 /* vm86plus version */
@@ -1568,11 +1973,17 @@ void OPPROTO op_movl_T0_eflags_vm(void)
 void OPPROTO op_cld(void)
 {
     DF = 1;
+#if TAINT_FLAGS
+	TEMU_eflags &= ~DF_MASK;
+#endif    
 }
 
 void OPPROTO op_std(void)
 {
     DF = -1;
+#if TAINT_FLAGS
+	TEMU_eflags |= DF_MASK;
+#endif    
 }
 
 void OPPROTO op_clc(void)
@@ -1604,15 +2015,24 @@ void OPPROTO op_salc(void)
     int cf;
     cf = cc_table[CC_OP].compute_c();
     EAX = (EAX & ~0xff) | ((-cf) & 0xff);
+#if TAINT_ENABLED
+    taintcheck_flag2reg(CC_C, R_EAX*4, 1);
+#endif
 }
 
 static int compute_all_eflags(void)
 {
+#if TAINT_FLAGS
+    taintcheck_update_all_eflags(); //FIXME!!
+#endif
     return CC_SRC;
 }
 
 static int compute_c_eflags(void)
 {
+#if TAINT_FLAGS
+    taintcheck_update_eflags(CC_C); //FIXME!!
+#endif
     return CC_SRC & CC_C;
 }
 
@@ -2491,6 +2911,123 @@ void OPPROTO op_emms(void)
     *(uint32_t *)(env->fptags) = 0x01010101;
     *(uint32_t *)(env->fptags + 4) = 0x01010101;
 }
+
+#ifdef DEFINE_INSN_END
+void OPPROTO op_insn_end(void)
+{
+   	TEMU_insn_end();
+}
+#endif
+
+#ifdef DEFINE_INSN_BEGIN
+void OPPROTO op_insn_begin(void)
+{
+	TEMU_insn_begin((uint32_t) PARAM1);
+}
+#endif
+
+#ifdef DEFINE_BLOCK_BEGIN
+void OPPROTO op_block_begin(void)
+{
+	int is_jmp = TEMU_block_begin();
+	if(is_jmp)
+		EXIT_TB();
+}
+#endif
+
+#if TAINT_ENABLED
+
+void OPPROTO op_taint_reg_clean(void)
+{
+	taintcheck_reg_clean(PARAM1);
+}
+
+void OPPROTO op_taint_patch(void)
+{
+	taintcheck_patch();
+}
+
+
+#ifdef DEFINE_BLOCK_END
+void OPPROTO op_block_end(void)
+{
+	TEMU_block_end();
+}
+#endif
+
+#if TAINT_FLAGS
+void OPPROTO op_taintcheck_jnz_T0_label(void)
+{
+    /*Here, we can decide which branch to take*/
+    int res = taintcheck_jnz_T0_label();
+    if(res == 2)
+        GOTO_LABEL_PARAM(1);
+    else if(res == 1) {
+        //FORCE_RET();
+    }
+    FORCE_RET();
+}
+#endif
+
+void OPPROTO op_taintcheck_mov_i2m(void)
+{
+	taintcheck_mov_i2m();
+}
+
+void OPPROTO op_taintcheck_mov_i2r(void)
+{
+	taintcheck_reg_clean2((int)PARAM1, (int)PARAM2);
+}
+
+void OPPROTO op_taintcheck_mov_r2r(void)
+{
+	taintcheck_reg2reg_shift((int)PARAM1, (int)PARAM2, (int)PARAM3);
+}
+
+void OPPROTO op_taintcheck_mov_m2r(void)
+{
+	taintcheck_mov_m2r((int)PARAM1, (int)PARAM2, (int)PARAM3);
+}
+
+void OPPROTO op_taintcheck_mov_r2m(void)
+{
+	taintcheck_mov_r2m((int)PARAM1, (int)PARAM2, (int)PARAM3);
+}
+
+void OPPROTO op_taintcheck_sidt_T0(void)
+{
+	T0 = taintcheck_sidt();
+}
+
+void OPPROTO op_taintcheck_code2TN(void)
+{
+  taintcheck_code2TN((uint32_t)PARAM1, (uint32_t)PARAM2, (int)PARAM3);
+}
+
+void OPPROTO op_taintcheck_check_eip(void)
+{
+  taintcheck_check_eip((uint32_t)PARAM1);
+}
+
+#ifdef IMPACT_ANALYSIS
+void OPPROTO op_set_impact_propagate(void)
+{
+  impact_propagate = PARAM1;
+}
+#endif
+
+#ifdef CALLSTRING_ANALYSIS
+void OPPROTO op_call_check()
+{
+  TEMU_call_analysis((uint32_t)PARAM1);
+}
+#endif
+
+
+#include "opt_op.c"
+
+#endif
+
 
 #define SHIFT 0
 #include "ops_sse.h"

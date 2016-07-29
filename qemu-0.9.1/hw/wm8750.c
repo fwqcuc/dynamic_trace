@@ -596,6 +596,7 @@ i2c_slave *wm8750_init(i2c_bus *bus, AudioState *audio)
     return &s->i2c;
 }
 
+#if 0
 static void wm8750_fini(i2c_slave *i2c)
 {
     struct wm8750_s *s = (struct wm8750_s *) i2c;
@@ -603,6 +604,7 @@ static void wm8750_fini(i2c_slave *i2c)
     AUD_remove_card(&s->card);
     qemu_free(s);
 }
+#endif
 
 void wm8750_data_req_set(i2c_slave *i2c,
                 void (*data_req)(void *, int, int), void *opaque)

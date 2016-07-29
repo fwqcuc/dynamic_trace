@@ -30,7 +30,7 @@ make="make"
 install="install"
 strip="strip"
 cpu=`uname -m`
-target_list=""
+target_list="i386-softmmu"
 case "$cpu" in
   i386|i486|i586|i686|i86pc|BePC)
     cpu="i386"
@@ -213,6 +213,9 @@ else
     source_path_used="yes"
 fi
 
+
+vine_path=""
+proj_name=""
 werror="no"
 # generate compile errors on warnings for development builds
 #if grep cvs $source_path/VERSION > /dev/null 2>&1 ; then
@@ -311,6 +314,10 @@ for opt do
                  target_cpu="sparc64"; cpu="sparc64" ;;
         *)     echo "undefined SPARC architecture. Exiting";exit 1;;
       esac
+  ;;
+  --vine-path=*) vine_path="$optarg"
+  ;;
+  --proj-name=*) proj_name="$optarg"
   ;;
   --enable-werror) werror="yes"
   ;;
@@ -417,6 +424,8 @@ echo "  --fmod-lib               path to FMOD library"
 echo "  --fmod-inc               path to FMOD includes"
 echo "  --enable-uname-release=R Return R for uname -r in usermode emulation"
 echo "  --sparc_cpu=V            Build qemu for Sparc architecture v7, v8, v8plus, v8plusa, v9"
+echo "  --vine-path=PATH         path to VinE trunk [$vine_path]"
+echo "  --proj-name=NAME         project name [tracecap, sample_plugin...]"
 echo ""
 echo "NOTE: The object files are built at the place where configure is launched"
 exit 1
@@ -743,6 +752,8 @@ echo "kqemu support     $kqemu"
 echo "Documentation     $build_docs"
 [ ! -z "$uname_release" ] && \
 echo "uname -r          $uname_release"
+echo "VinE path         $vine_path"
+echo "Project name      $proj_name"
 
 if test $sdl_too_old = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -917,7 +928,7 @@ if test "$vnc_tls" = "yes" ; then
   echo "CONFIG_VNC_TLS_LIBS=$vnc_tls_libs" >> $config_mak
   echo "#define CONFIG_VNC_TLS 1" >> $config_h
 fi
-qemu_version=`head $source_path/VERSION`
+qemu_version=`head $source_path/QEMU_VERSION`
 echo "VERSION=$qemu_version" >>$config_mak
 echo "#define QEMU_VERSION \"$qemu_version\"" >> $config_h
 
@@ -926,6 +937,44 @@ if [ "$source_path_used" = "yes" ]; then
   echo "VPATH=$source_path" >> $config_mak
 fi
 echo "TARGET_DIRS=$target_list" >> $config_mak
+
+echo "VINE_PATH=$vine_path" >> $config_mak
+echo "PROJECT_NAME=$proj_name" >> $config_mak
+
+proj_path="$source_path/$proj_name"
+
+if test -z $proj_name; then
+  echo "Error: You must specify a project name"
+  echo "Example: --proj-name=tracecap"
+  exit 1
+
+elif test "$proj_name" = "sample_plugin"; then
+  echo "#define TEMU_HOME \"$source_path\"" >> $config_h
+  echo "#define PROJECT_HOME \"$proj_path\"" >> $config_h
+  echo "#define TAINT_ENABLED 1" >> $config_h
+  echo "#define DEFINE_INSN_BEGIN" >> $config_h
+  echo "#define DEFINE_BLOCK_BEGIN" >> $config_h
+  echo "#define TAINTCHECK_CLEAR_ZERO" >> $config_h
+  echo "#define PLUGIN_SAMPLE" >> $config_h
+
+elif test "$proj_name" = "tracecap"; then
+  echo "#define TEMU_HOME \"$source_path\"" >> $config_h
+  echo "#define PROJECT_HOME \"$proj_path\"" >> $config_h
+  echo "#define TAINT_ENABLED 1" >> $config_h
+  echo "#define DEFINE_BLOCK_BEGIN" >> $config_h
+  echo "#define DEFINE_INSN_BEGIN" >> $config_h    
+  echo "#define DEFINE_INSN_END" >> $config_h    
+  echo "#define DEFINE_EIP_TAINTED" >> $config_h    
+  echo "#define TAINT_FLAGS 1" >> $config_h    
+  echo "#define PRECISE_EFLAGS" >> $config_h
+  echo "#define PLUGIN_TRACECAP" >> $config_h
+ 
+else
+  echo "Error: The specified project is not found" 
+  exit 1
+fi
+
+
 if [ "$build_docs" = "yes" ] ; then
   echo "BUILD_DOCS=yes" >> $config_mak
 fi
@@ -967,6 +1016,8 @@ if test `expr "$target_list" : ".*softmmu.*"` != 0 ; then
   tools="qemu-img\$(EXESUF) $tools"
 fi
 echo "TOOLS=$tools" >> $config_mak
+
+
 
 test -f ${config_h}~ && cmp -s $config_h ${config_h}~ && mv ${config_h}~ $config_h
 

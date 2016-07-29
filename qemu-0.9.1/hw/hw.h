@@ -87,6 +87,8 @@ int register_savevm(const char *idstr,
                     SaveStateHandler *save_state,
                     LoadStateHandler *load_state,
                     void *opaque);
+///TEMU added function
+int deregister_savevm(const char *idstr, int instance_id);
 
 typedef void QEMUResetHandler(void *opaque);
 

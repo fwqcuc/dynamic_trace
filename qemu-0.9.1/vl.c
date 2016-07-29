@@ -45,6 +45,7 @@
 #include <errno.h>
 #include <sys/time.h>
 #include <zlib.h>
+#include "TEMU_main.h"
 
 #ifndef _WIN32
 #include <sys/times.h>
@@ -236,6 +237,8 @@ char drives_opt[MAX_DRIVES][1024];
 static CPUState *cur_cpu;
 static CPUState *next_cpu;
 static int event_pending = 1;
+
+static char *TEMU_loadvm_args[3];
 
 #define TFR(expr) do { if ((expr) != -1) break; } while (errno == EINTR)
 
@@ -5973,6 +5976,27 @@ static int bdrv_snapshot_find(BlockDriverState *bs, QEMUSnapshotInfo *sn_info,
     return ret;
 }
 
+///TEMU added function
+int deregister_savevm(const char *idstr, int instance_id)
+{
+    SaveStateEntry *se, **pse;
+    
+    se = find_se(idstr, instance_id);
+    if(se == NULL) return 0;
+    
+    pse = &first_se;
+    while (*pse != NULL) {
+    	if (*pse == se) {
+    		*pse = se->next;
+    		qemu_free(se);
+    		break;
+    	}
+        pse = &(*pse)->next;
+    }
+    return 0;
+}
+
+
 void do_savevm(const char *name)
 {
     BlockDriverState *bs, *bs1;
@@ -7607,6 +7631,9 @@ static void help(int exitcode)
 #endif
            "-no-reboot      exit instead of rebooting\n"
            "-loadvm file    start right away with a saved state (loadvm in monitor)\n"
+           "-after-loadvm arg	execute command after the vm state has been loaded (TEMU option)\n"
+           "-load-plugin arg	load TEMU plugin (TEMU option)\n"
+
 	   "-vnc display    start a VNC server on display\n"
 #ifndef _WIN32
 	   "-daemonize      daemonize QEMU after initializing\n"
@@ -7696,6 +7723,8 @@ enum {
     QEMU_OPTION_serial,
     QEMU_OPTION_parallel,
     QEMU_OPTION_loadvm,
+    QEMU_OPTION_after_loadvm, //TEMU option
+    QEMU_OPTION_load_plugin,  //TEMU option
     QEMU_OPTION_full_screen,
     QEMU_OPTION_no_frame,
     QEMU_OPTION_alt_grab,
@@ -7794,6 +7823,8 @@ const QEMUOption qemu_options[] = {
     { "serial", HAS_ARG, QEMU_OPTION_serial },
     { "parallel", HAS_ARG, QEMU_OPTION_parallel },
     { "loadvm", HAS_ARG, QEMU_OPTION_loadvm },
+    { "after-loadvm", HAS_ARG, QEMU_OPTION_after_loadvm }, //TEMU option
+    { "load-plugin", HAS_ARG, QEMU_OPTION_load_plugin },  //TEMU option
     { "full-screen", 0, QEMU_OPTION_full_screen },
 #ifdef CONFIG_SDL
     { "no-frame", 0, QEMU_OPTION_no_frame },
@@ -8080,6 +8111,8 @@ int main(int argc, char **argv)
     char parallel_devices[MAX_PARALLEL_PORTS][128];
     int parallel_device_index;
     const char *loadvm = NULL;
+    const char *after_loadvm = NULL;
+    const char *load_plugin = NULL;
     QEMUMachine *machine;
     const char *cpu_model;
     char usb_devices[MAX_USB_CMDLINE][128];
@@ -8525,9 +8558,15 @@ int main(int argc, char **argv)
                         sizeof(parallel_devices[0]), optarg);
                 parallel_device_index++;
                 break;
-	    case QEMU_OPTION_loadvm:
-		loadvm = optarg;
-		break;
+		    case QEMU_OPTION_loadvm:
+				loadvm = optarg;
+				break;
+			case QEMU_OPTION_after_loadvm: //TEMU option
+				after_loadvm = optarg;
+				break;
+			case QEMU_OPTION_load_plugin:  //TEMU option
+				load_plugin = optarg;
+				break;
             case QEMU_OPTION_full_screen:
                 full_screen = 1;
                 break;
@@ -8943,8 +8982,34 @@ int main(int argc, char **argv)
     }
 #endif
 
-    if (loadvm)
+    TEMU_init(); //some initializations have to be done before loadvm   
+
+    if(loadvm == NULL && load_plugin)
+    	do_load_plugin(load_plugin);
+
+    if(loadvm) {
+      TEMU_loadvm_args[0] = strdup(loadvm);
+      TEMU_loadvm_args[1] = load_plugin? strdup(load_plugin) : NULL;
+      TEMU_loadvm_args[2] = after_loadvm? strdup(after_loadvm) : NULL;
+    
+      QEMUTimer *loadvm_timer = qemu_new_timer(vm_clock, TEMU_loadvm,
+					TEMU_loadvm_args);
+        
+      if(loadvm_timer)
+        qemu_mod_timer(loadvm_timer, qemu_get_clock(vm_clock) + ticks_per_sec);
+    }    
+    
+#if 0
+    if (loadvm) {
         do_loadvm(loadvm);
+    }
+    if(load_plugin)
+    	do_load_plugin(load_plugin);
+
+    if(loadvm && after_loadvm)
+       	TEMU_after_loadvm(after_loadvm);
+
+#endif
 
     {
         /* XXX: simplify init */

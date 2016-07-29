@@ -3,7 +3,7 @@
    stack during a system call. */
 
 struct target_pt_regs {
-    abi_long uregs[18];
+    target_long uregs[18];
 };
 
 #define ARM_cpsr	uregs[16]

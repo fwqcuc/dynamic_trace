@@ -33,7 +33,10 @@
 #define always_inline __attribute__ (( always_inline )) __inline__
 #endif
 #endif
+
+#ifndef inline
 #define inline always_inline
+#endif
 
 #ifdef __i386__
 #define REGPARM(n) __attribute((regparm(n)))

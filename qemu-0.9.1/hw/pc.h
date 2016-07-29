@@ -47,7 +47,7 @@ void ioapic_set_irq(void *opaque, int vector, int level);
 
 /* i8254.c */
 
-#define PIT_FREQ 1193182
+#define PIT_FREQ (1193182/2) //1193182 TEMU sets timer to be 2 times slowdown
 
 typedef struct PITState PITState;
 

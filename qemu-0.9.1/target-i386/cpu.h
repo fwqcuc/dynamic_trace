@@ -54,6 +54,14 @@
 #define R_EBP 5
 #define R_ESI 6
 #define R_EDI 7
+#if 1//TAINT_ENABLED
+#define R_T0 CPU_NB_REGS
+#define R_T1 (CPU_NB_REGS + 1)
+#define R_A0 (CPU_NB_REGS + 2)
+#define R_CC_SRC (CPU_NB_REGS + 3)
+#define R_CC_DST (CPU_NB_REGS + 4)
+#define R_EFLAGS (CPU_NB_REGS + 5)
+#endif
 
 #define R_AL 0
 #define R_CL 1
@@ -467,13 +475,20 @@ typedef union {
 #define NB_MMU_MODES 2
 
 typedef struct CPUX86State {
-#if TARGET_LONG_BITS > HOST_LONG_BITS
+#if 1 //TAINT_ENABLED
+	
+#elif TARGET_LONG_BITS > HOST_LONG_BITS
     /* temporaries if we cannot store them in host registers */
     target_ulong t0, t1, t2;
 #endif
 
     /* standard registers */
+#if 1//TAINT_ENABLED
+    target_ulong regs[CPU_NB_REGS*2];
+#else
     target_ulong regs[CPU_NB_REGS];
+#endif    
+    target_ulong tempidx; //added for TEMU
     target_ulong eip;
     target_ulong eflags; /* eflags register. During CPU emulation, CC
                         flags and DF are set to zero because they are

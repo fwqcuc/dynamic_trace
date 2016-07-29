@@ -73,7 +73,9 @@ typedef uint64_t bits64;
 typedef int64_t sbits64;
 
 #define LIT64( a ) a##LL
+//#ifndef INLINE
 #define INLINE static inline
+//#endif
 
 /*----------------------------------------------------------------------------
 | The macro `FLOATX80' must be defined to enable the extended double-precision

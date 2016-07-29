@@ -28,6 +28,7 @@
 #include "cpu.h"
 #include "exec-all.h"
 #include "svm.h"
+#include "TEMU_main.h" /* TEMU_update_cr3() */
 
 //#define DEBUG_MMU
 
@@ -729,6 +730,8 @@ void cpu_x86_update_cr3(CPUX86State *env, target_ulong new_cr3)
 #endif
         tlb_flush(env, 0);
     }
+
+	TEMU_update_cr3();
 }
 
 void cpu_x86_update_cr4(CPUX86State *env, uint32_t new_cr4)

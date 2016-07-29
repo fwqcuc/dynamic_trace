@@ -1,6 +1,6 @@
 /*
  *  MIPS emulation helpers for qemu.
- *
+ * 
  *  Copyright (c) 2004-2005 Jocelyn Mayer
  *
  * This library is free software; you can redistribute it and/or
@@ -36,59 +36,28 @@ enum {
     TLBRET_MATCH = 0
 };
 
-/* no MMU emulation */
-int no_mmu_map_address (CPUState *env, target_ulong *physical, int *prot,
+/* MIPS32 4K MMU emulation */
+#ifdef MIPS_USES_R4K_TLB
+static int map_address (CPUState *env, target_ulong *physical, int *prot,
                         target_ulong address, int rw, int access_type)
 {
-    *physical = address;
-    *prot = PAGE_READ | PAGE_WRITE;
-    return TLBRET_MATCH;
-}
-
-/* fixed mapping MMU emulation */
-int fixed_mmu_map_address (CPUState *env, target_ulong *physical, int *prot,
-                           target_ulong address, int rw, int access_type)
-{
-    if (address <= (int32_t)0x7FFFFFFFUL) {
-        if (!(env->CP0_Status & (1 << CP0St_ERL)))
-            *physical = address + 0x40000000UL;
-        else
-            *physical = address;
-    } else if (address <= (int32_t)0xBFFFFFFFUL)
-        *physical = address & 0x1FFFFFFF;
-    else
-        *physical = address;
-
-    *prot = PAGE_READ | PAGE_WRITE;
-    return TLBRET_MATCH;
-}
-
-/* MIPS32/MIPS64 R4000-style MMU emulation */
-int r4k_map_address (CPUState *env, target_ulong *physical, int *prot,
-                     target_ulong address, int rw, int access_type)
-{
+    target_ulong tag = address & (TARGET_PAGE_MASK << 1);
     uint8_t ASID = env->CP0_EntryHi & 0xFF;
-    int i;
+    tlb_t *tlb;
+    int i, n;
 
-    for (i = 0; i < env->tlb->tlb_in_use; i++) {
-        r4k_tlb_t *tlb = &env->tlb->mmu.r4k.tlb[i];
-        /* 1k pages are not supported. */
-        target_ulong mask = tlb->PageMask | ~(TARGET_PAGE_MASK << 1);
-        target_ulong tag = address & ~mask;
-        target_ulong VPN = tlb->VPN & ~mask;
-#if defined(TARGET_MIPS64)
-        tag &= env->SEGMask;
-#endif
-
+    for (i = 0; i < env->tlb_in_use; i++) {
+        tlb = &env->tlb[i];
         /* Check ASID, virtual page number & size */
-        if ((tlb->G == 1 || tlb->ASID == ASID) && VPN == tag) {
+        if ((tlb->G == 1 || tlb->ASID == ASID) &&
+            tlb->VPN == tag && address < tlb->end2) {
             /* TLB match */
-            int n = !!(address & mask & ~(mask >> 1));
+            n = (address >> TARGET_PAGE_BITS) & 1;
             /* Check access rights */
-            if (!(n ? tlb->V1 : tlb->V0))
+           if (!(n ? tlb->V1 : tlb->V0))
                 return TLBRET_INVALID;
-            if (rw == 0 || (n ? tlb->D1 : tlb->D0)) {
-                *physical = tlb->PFN[n] | (address & (mask >> 1));
+           if (rw == 0 || (n ? tlb->D1 : tlb->D0)) {
+                *physical = tlb->PFN[n] | (address & ~TARGET_PAGE_MASK);
                 *prot = PAGE_READ;
                 if (n ? tlb->D1 : tlb->D0)
                     *prot |= PAGE_WRITE;
@@ -99,20 +68,14 @@ int r4k_map_address (CPUState *env, target_ulong *physical, int *prot,
     }
     return TLBRET_NOMATCH;
 }
+#endif
 
 static int get_physical_address (CPUState *env, target_ulong *physical,
                                 int *prot, target_ulong address,
                                 int rw, int access_type)
 {
-    /* User mode can only access useg/xuseg */
+    /* User mode can only access useg */
     int user_mode = (env->hflags & MIPS_HFLAG_MODE) == MIPS_HFLAG_UM;
-    int supervisor_mode = (env->hflags & MIPS_HFLAG_MODE) == MIPS_HFLAG_SM;
-    int kernel_mode = !user_mode && !supervisor_mode;
-#if defined(TARGET_MIPS64)
-    int UX = (env->CP0_Status & (1 << CP0St_UX)) != 0;
-    int SX = (env->CP0_Status & (1 << CP0St_SX)) != 0;
-    int KX = (env->CP0_Status & (1 << CP0St_KX)) != 0;
-#endif
     int ret = TLBRET_MATCH;
 
 #if 0
@@ -121,98 +84,66 @@ static int get_physical_address (CPUState *env, target_ulong *physical,
                 user_mode, env->hflags);
     }
 #endif
-
-    if (address <= (int32_t)0x7FFFFFFFUL) {
-        /* useg */
-        if (env->CP0_Status & (1 << CP0St_ERL)) {
-            *physical = address & 0xFFFFFFFF;
+    if (user_mode && address > 0x7FFFFFFFUL)
+        return TLBRET_BADADDR;
+    if (address < 0x80000000UL) {
+        if (!(env->hflags & MIPS_HFLAG_ERL)) {
+#ifdef MIPS_USES_R4K_TLB
+            ret = map_address(env, physical, prot, address, rw, access_type);
+#else
+            *physical = address + 0x40000000UL;
             *prot = PAGE_READ | PAGE_WRITE;
-        } else {
-            ret = env->tlb->map_address(env, physical, prot, address, rw, access_type);
-        }
-#if defined(TARGET_MIPS64)
-    } else if (address < 0x4000000000000000ULL) {
-        /* xuseg */
-	if (UX && address <= (0x3FFFFFFFFFFFFFFFULL & env->SEGMask)) {
-            ret = env->tlb->map_address(env, physical, prot, address, rw, access_type);
-	} else {
-	    ret = TLBRET_BADADDR;
-        }
-    } else if (address < 0x8000000000000000ULL) {
-        /* xsseg */
-	if ((supervisor_mode || kernel_mode) &&
-	    SX && address <= (0x7FFFFFFFFFFFFFFFULL & env->SEGMask)) {
-            ret = env->tlb->map_address(env, physical, prot, address, rw, access_type);
-	} else {
-	    ret = TLBRET_BADADDR;
-        }
-    } else if (address < 0xC000000000000000ULL) {
-        /* xkphys */
-        if (kernel_mode && KX &&
-            (address & 0x07FFFFFFFFFFFFFFULL) <= env->PAMask) {
-            *physical = address & env->PAMask;
-            *prot = PAGE_READ | PAGE_WRITE;
-	} else {
-	    ret = TLBRET_BADADDR;
-	}
-    } else if (address < 0xFFFFFFFF80000000ULL) {
-        /* xkseg */
-	if (kernel_mode && KX &&
-	    address <= (0xFFFFFFFF7FFFFFFFULL & env->SEGMask)) {
-            ret = env->tlb->map_address(env, physical, prot, address, rw, access_type);
-	} else {
-	    ret = TLBRET_BADADDR;
-	}
 #endif
-    } else if (address < (int32_t)0xA0000000UL) {
+        } else {
+            *physical = address;
+            *prot = PAGE_READ | PAGE_WRITE;
+        }
+    } else if (address < 0xA0000000UL) {
         /* kseg0 */
-        if (kernel_mode) {
-            *physical = address - (int32_t)0x80000000UL;
-            *prot = PAGE_READ | PAGE_WRITE;
-        } else {
-            ret = TLBRET_BADADDR;
-        }
-    } else if (address < (int32_t)0xC0000000UL) {
+        /* XXX: check supervisor mode */
+        *physical = address - 0x80000000UL;
+        *prot = PAGE_READ | PAGE_WRITE;
+    } else if (address < 0xC0000000UL) {
         /* kseg1 */
-        if (kernel_mode) {
-            *physical = address - (int32_t)0xA0000000UL;
-            *prot = PAGE_READ | PAGE_WRITE;
-        } else {
-            ret = TLBRET_BADADDR;
-        }
-    } else if (address < (int32_t)0xE0000000UL) {
-        /* sseg (kseg2) */
-        if (supervisor_mode || kernel_mode) {
-            ret = env->tlb->map_address(env, physical, prot, address, rw, access_type);
-        } else {
-            ret = TLBRET_BADADDR;
-        }
+        /* XXX: check supervisor mode */
+        *physical = address - 0xA0000000UL;
+        *prot = PAGE_READ | PAGE_WRITE;
+    } else if (address < 0xE0000000UL) {
+        /* kseg2 */
+#ifdef MIPS_USES_R4K_TLB
+        ret = map_address(env, physical, prot, address, rw, access_type);
+#else
+        *physical = address;
+        *prot = PAGE_READ | PAGE_WRITE;
+#endif
     } else {
         /* kseg3 */
+        /* XXX: check supervisor mode */
         /* XXX: debug segment is not emulated */
-        if (kernel_mode) {
-            ret = env->tlb->map_address(env, physical, prot, address, rw, access_type);
-        } else {
-            ret = TLBRET_BADADDR;
-        }
+#ifdef MIPS_USES_R4K_TLB
+        ret = map_address(env, physical, prot, address, rw, access_type);
+#else
+        *physical = address;
+        *prot = PAGE_READ | PAGE_WRITE;
+#endif
     }
 #if 0
     if (logfile) {
-        fprintf(logfile, TARGET_FMT_lx " %d %d => " TARGET_FMT_lx " %d (%d)\n",
-		address, rw, access_type, *physical, *prot, ret);
+        fprintf(logfile, "%08x %d %d => %08x %d (%d)\n", address, rw,
+                access_type, *physical, *prot, ret);
     }
 #endif
 
     return ret;
 }
 
-#if defined(CONFIG_USER_ONLY)
-target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
+#if defined(CONFIG_USER_ONLY) 
+target_ulong cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
 {
     return addr;
 }
 #else
-target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
+target_ulong cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
 {
     target_ulong phys_addr;
     int prot;
@@ -228,7 +159,7 @@ void cpu_mips_init_mmu (CPUState *env)
 #endif /* !defined(CONFIG_USER_ONLY) */
 
 int cpu_mips_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
-                               int mmu_idx, int is_softmmu)
+                               int is_user, int is_softmmu)
 {
     target_ulong physical;
     int prot;
@@ -240,8 +171,8 @@ int cpu_mips_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
 #if 0
         cpu_dump_state(env, logfile, fprintf, 0);
 #endif
-        fprintf(logfile, "%s pc " TARGET_FMT_lx " ad " TARGET_FMT_lx " rw %d mmu_idx %d smmu %d\n",
-                __func__, env->PC[env->current_tc], address, rw, mmu_idx, is_softmmu);
+        fprintf(logfile, "%s pc %08x ad %08x rw %d is_user %d smmu %d\n",
+                __func__, env->PC, address, rw, is_user, is_softmmu);
     }
 
     rw &= 1;
@@ -258,13 +189,13 @@ int cpu_mips_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
     ret = get_physical_address(env, &physical, &prot,
                                address, rw, access_type);
     if (logfile) {
-        fprintf(logfile, "%s address=" TARGET_FMT_lx " ret %d physical " TARGET_FMT_lx " prot %d\n",
+        fprintf(logfile, "%s address=%08x ret %d physical %08x prot %d\n",
                 __func__, address, ret, physical, prot);
     }
     if (ret == TLBRET_MATCH) {
        ret = tlb_set_page(env, address & TARGET_PAGE_MASK,
                           physical & TARGET_PAGE_MASK, prot,
-                          mmu_idx, is_softmmu);
+                          is_user, is_softmmu);
     } else if (ret < 0) {
     do_fault:
         switch (ret) {
@@ -296,20 +227,14 @@ int cpu_mips_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
             /* TLB match but 'D' bit is cleared */
             exception = EXCP_LTLBL;
             break;
-
+                
         }
         /* Raise exception */
         env->CP0_BadVAddr = address;
-        env->CP0_Context = (env->CP0_Context & ~0x007fffff) |
+        env->CP0_Context = (env->CP0_Context & 0xff800000) |
 	                   ((address >> 9) &   0x007ffff0);
         env->CP0_EntryHi =
             (env->CP0_EntryHi & 0xFF) | (address & (TARGET_PAGE_MASK << 1));
-#if defined(TARGET_MIPS64)
-        env->CP0_EntryHi &= env->SEGMask;
-        env->CP0_XContext = (env->CP0_XContext & ((~0ULL) << (env->SEGBITS - 7))) |
-                            ((address & 0xC00000000000ULL) >> (env->SEGBITS - 9)) |
-                            ((address & ((1ULL << env->SEGBITS) - 1) & 0xFFFFFFFFFFFFE000ULL) >> 9);
-#endif
         env->exception_index = exception;
         env->error_code = error_code;
         ret = 1;
@@ -318,59 +243,20 @@ int cpu_mips_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
     return ret;
 }
 
-#if !defined(CONFIG_USER_ONLY)
-static const char * const excp_names[EXCP_LAST + 1] = {
-    [EXCP_RESET] = "reset",
-    [EXCP_SRESET] = "soft reset",
-    [EXCP_DSS] = "debug single step",
-    [EXCP_DINT] = "debug interrupt",
-    [EXCP_NMI] = "non-maskable interrupt",
-    [EXCP_MCHECK] = "machine check",
-    [EXCP_EXT_INTERRUPT] = "interrupt",
-    [EXCP_DFWATCH] = "deferred watchpoint",
-    [EXCP_DIB] = "debug instruction breakpoint",
-    [EXCP_IWATCH] = "instruction fetch watchpoint",
-    [EXCP_AdEL] = "address error load",
-    [EXCP_AdES] = "address error store",
-    [EXCP_TLBF] = "TLB refill",
-    [EXCP_IBE] = "instruction bus error",
-    [EXCP_DBp] = "debug breakpoint",
-    [EXCP_SYSCALL] = "syscall",
-    [EXCP_BREAK] = "break",
-    [EXCP_CpU] = "coprocessor unusable",
-    [EXCP_RI] = "reserved instruction",
-    [EXCP_OVERFLOW] = "arithmetic overflow",
-    [EXCP_TRAP] = "trap",
-    [EXCP_FPE] = "floating point",
-    [EXCP_DDBS] = "debug data break store",
-    [EXCP_DWATCH] = "data watchpoint",
-    [EXCP_LTLBL] = "TLB modify",
-    [EXCP_TLBL] = "TLB load",
-    [EXCP_TLBS] = "TLB store",
-    [EXCP_DBE] = "data bus error",
-    [EXCP_DDBL] = "debug data break load",
-    [EXCP_THREAD] = "thread",
-    [EXCP_MDMX] = "MDMX",
-    [EXCP_C2E] = "precise coprocessor 2",
-    [EXCP_CACHE] = "cache error",
-};
-#endif
-
+#if defined(CONFIG_USER_ONLY)
 void do_interrupt (CPUState *env)
 {
-#if !defined(CONFIG_USER_ONLY)
+    env->exception_index = EXCP_NONE;
+}
+#else
+void do_interrupt (CPUState *env)
+{
     target_ulong offset;
     int cause = -1;
-    const char *name;
 
     if (logfile && env->exception_index != EXCP_EXT_INTERRUPT) {
-        if (env->exception_index < 0 || env->exception_index > EXCP_LAST)
-            name = "unknown";
-        else
-            name = excp_names[env->exception_index];
-
-        fprintf(logfile, "%s enter: PC " TARGET_FMT_lx " EPC " TARGET_FMT_lx " %s exception\n",
-                __func__, env->PC[env->current_tc], env->CP0_EPC, name);
+        fprintf(logfile, "%s enter: PC %08x EPC %08x cause %d excp %d\n",
+                __func__, env->PC, env->CP0_EPC, cause, env->exception_index);
     }
     if (env->exception_index == EXCP_EXT_INTERRUPT &&
         (env->hflags & MIPS_HFLAG_DM))
@@ -384,7 +270,7 @@ void do_interrupt (CPUState *env)
          * (but we assume the pc has always been updated during
          *  code translation).
          */
-        env->CP0_DEPC = env->PC[env->current_tc];
+        env->CP0_DEPC = env->PC;
         goto enter_debug_mode;
     case EXCP_DINT:
         env->CP0_Debug |= 1 << CP0DB_DINT;
@@ -400,93 +286,63 @@ void do_interrupt (CPUState *env)
         goto set_DEPC;
     case EXCP_DDBL:
         env->CP0_Debug |= 1 << CP0DB_DDBL;
+        goto set_DEPC;
     set_DEPC:
         if (env->hflags & MIPS_HFLAG_BMASK) {
             /* If the exception was raised from a delay slot,
                come back to the jump.  */
-            env->CP0_DEPC = env->PC[env->current_tc] - 4;
+            env->CP0_DEPC = env->PC - 4;
             env->hflags &= ~MIPS_HFLAG_BMASK;
         } else {
-            env->CP0_DEPC = env->PC[env->current_tc];
+            env->CP0_DEPC = env->PC;
         }
     enter_debug_mode:
-        env->hflags |= MIPS_HFLAG_DM | MIPS_HFLAG_64 | MIPS_HFLAG_CP0;
-        env->hflags &= ~(MIPS_HFLAG_KSU);
+        env->hflags |= MIPS_HFLAG_DM;
         /* EJTAG probe trap enable is not implemented... */
-        if (!(env->CP0_Status & (1 << CP0St_EXL)))
-            env->CP0_Cause &= ~(1 << CP0Ca_BD);
-        env->PC[env->current_tc] = (int32_t)0xBFC00480;
+        env->PC = 0xBFC00480;
         break;
     case EXCP_RESET:
         cpu_reset(env);
         break;
     case EXCP_SRESET:
-        env->CP0_Status |= (1 << CP0St_SR);
-        memset(env->CP0_WatchLo, 0, sizeof(*env->CP0_WatchLo));
+        env->CP0_Status = (1 << CP0St_SR);
+        env->CP0_WatchLo = 0;
         goto set_error_EPC;
     case EXCP_NMI:
-        env->CP0_Status |= (1 << CP0St_NMI);
+        env->CP0_Status = (1 << CP0St_NMI);
     set_error_EPC:
         if (env->hflags & MIPS_HFLAG_BMASK) {
             /* If the exception was raised from a delay slot,
                come back to the jump.  */
-            env->CP0_ErrorEPC = env->PC[env->current_tc] - 4;
+            env->CP0_ErrorEPC = env->PC - 4;
             env->hflags &= ~MIPS_HFLAG_BMASK;
         } else {
-            env->CP0_ErrorEPC = env->PC[env->current_tc];
+            env->CP0_ErrorEPC = env->PC;
         }
-        env->CP0_Status |= (1 << CP0St_ERL) | (1 << CP0St_BEV);
-        env->hflags |= MIPS_HFLAG_64 | MIPS_HFLAG_CP0;
-        env->hflags &= ~(MIPS_HFLAG_KSU);
-        if (!(env->CP0_Status & (1 << CP0St_EXL)))
-            env->CP0_Cause &= ~(1 << CP0Ca_BD);
-        env->PC[env->current_tc] = (int32_t)0xBFC00000;
+        env->hflags |= MIPS_HFLAG_ERL;
+	env->CP0_Status |= (1 << CP0St_ERL) | (1 << CP0St_BEV);
+        env->PC = 0xBFC00000;
         break;
+    case EXCP_MCHECK:
+        cause = 24;
+        goto set_EPC;
     case EXCP_EXT_INTERRUPT:
         cause = 0;
         if (env->CP0_Cause & (1 << CP0Ca_IV))
             offset = 0x200;
         goto set_EPC;
-    case EXCP_LTLBL:
-        cause = 1;
+    case EXCP_DWATCH:
+        cause = 23;
+        /* XXX: TODO: manage defered watch exceptions */
+        goto set_EPC;
+    case EXCP_AdEL:
+    case EXCP_AdES:
+        cause = 4;
         goto set_EPC;
     case EXCP_TLBL:
         cause = 2;
-        if (env->error_code == 1 && !(env->CP0_Status & (1 << CP0St_EXL))) {
-#if defined(TARGET_MIPS64)
-            int R = env->CP0_BadVAddr >> 62;
-            int UX = (env->CP0_Status & (1 << CP0St_UX)) != 0;
-            int SX = (env->CP0_Status & (1 << CP0St_SX)) != 0;
-            int KX = (env->CP0_Status & (1 << CP0St_KX)) != 0;
-
-            if ((R == 0 && UX) || (R == 1 && SX) || (R == 3 && KX))
-                offset = 0x080;
-            else
-#endif
-                offset = 0x000;
-        }
-        goto set_EPC;
-    case EXCP_TLBS:
-        cause = 3;
-        if (env->error_code == 1 && !(env->CP0_Status & (1 << CP0St_EXL))) {
-#if defined(TARGET_MIPS64)
-            int R = env->CP0_BadVAddr >> 62;
-            int UX = (env->CP0_Status & (1 << CP0St_UX)) != 0;
-            int SX = (env->CP0_Status & (1 << CP0St_SX)) != 0;
-            int KX = (env->CP0_Status & (1 << CP0St_KX)) != 0;
-
-            if ((R == 0 && UX) || (R == 1 && SX) || (R == 3 && KX))
-                offset = 0x080;
-            else
-#endif
-                offset = 0x000;
-        }
-        goto set_EPC;
-    case EXCP_AdEL:
-        cause = 4;
-        goto set_EPC;
-    case EXCP_AdES:
-        cause = 5;
+        if (env->error_code == 1 && !(env->hflags & MIPS_HFLAG_EXL))
+            offset = 0x000;
         goto set_EPC;
     case EXCP_IBE:
         cause = 6;
@@ -505,8 +361,7 @@ void do_interrupt (CPUState *env)
         goto set_EPC;
     case EXCP_CpU:
         cause = 11;
-        env->CP0_Cause = (env->CP0_Cause & ~(0x3 << CP0Ca_CE)) |
-                         (env->error_code << CP0Ca_CE);
+        env->CP0_Cause = (env->CP0_Cause & ~0x03000000) | (env->error_code << 28);
         goto set_EPC;
     case EXCP_OVERFLOW:
         cause = 12;
@@ -514,55 +369,34 @@ void do_interrupt (CPUState *env)
     case EXCP_TRAP:
         cause = 13;
         goto set_EPC;
-    case EXCP_FPE:
-        cause = 15;
+    case EXCP_LTLBL:
+        cause = 1;
         goto set_EPC;
-    case EXCP_C2E:
-        cause = 18;
+    case EXCP_TLBS:
+        cause = 3;
+        if (env->error_code == 1 && !(env->hflags & MIPS_HFLAG_EXL))
+            offset = 0x000;
         goto set_EPC;
-    case EXCP_MDMX:
-        cause = 22;
-        goto set_EPC;
-    case EXCP_DWATCH:
-        cause = 23;
-        /* XXX: TODO: manage defered watch exceptions */
-        goto set_EPC;
-    case EXCP_MCHECK:
-        cause = 24;
-        goto set_EPC;
-    case EXCP_THREAD:
-        cause = 25;
-        goto set_EPC;
-    case EXCP_CACHE:
-        cause = 30;
-        if (env->CP0_Status & (1 << CP0St_BEV)) {
-            offset = 0x100;
-        } else {
-            offset = 0x20000100;
-        }
     set_EPC:
-        if (!(env->CP0_Status & (1 << CP0St_EXL))) {
-            if (env->hflags & MIPS_HFLAG_BMASK) {
-                /* If the exception was raised from a delay slot,
-                   come back to the jump.  */
-                env->CP0_EPC = env->PC[env->current_tc] - 4;
-                env->CP0_Cause |= (1 << CP0Ca_BD);
-            } else {
-                env->CP0_EPC = env->PC[env->current_tc];
-                env->CP0_Cause &= ~(1 << CP0Ca_BD);
-            }
-            env->CP0_Status |= (1 << CP0St_EXL);
-            env->hflags |= MIPS_HFLAG_64 | MIPS_HFLAG_CP0;
-            env->hflags &= ~(MIPS_HFLAG_KSU);
-        }
-        env->hflags &= ~MIPS_HFLAG_BMASK;
-        if (env->CP0_Status & (1 << CP0St_BEV)) {
-            env->PC[env->current_tc] = (int32_t)0xBFC00200;
+        if (env->hflags & MIPS_HFLAG_BMASK) {
+            /* If the exception was raised from a delay slot,
+               come back to the jump.  */
+            env->CP0_EPC = env->PC - 4;
+            env->CP0_Cause |= 0x80000000;
+            env->hflags &= ~MIPS_HFLAG_BMASK;
         } else {
-            env->PC[env->current_tc] = (int32_t)(env->CP0_EBase & ~0x3ff);
+            env->CP0_EPC = env->PC;
+            env->CP0_Cause &= ~0x80000000;
         }
-        env->PC[env->current_tc] += offset;
-        env->CP0_Cause = (env->CP0_Cause & ~(0x1f << CP0Ca_EC)) | (cause << CP0Ca_EC);
+        if (env->CP0_Status & (1 << CP0St_BEV)) {
+            env->PC = 0xBFC00200;
+        } else {
+            env->PC = 0x80000000;
+        }
+        env->hflags |= MIPS_HFLAG_EXL;
+        env->CP0_Status |= (1 << CP0St_EXL);
+        env->PC += offset;
+        env->CP0_Cause = (env->CP0_Cause & ~0x7C) | (cause << 2);
         break;
     default:
         if (logfile) {
@@ -573,66 +407,12 @@ void do_interrupt (CPUState *env)
         exit(1);
     }
     if (logfile && env->exception_index != EXCP_EXT_INTERRUPT) {
-        fprintf(logfile, "%s: PC " TARGET_FMT_lx " EPC " TARGET_FMT_lx " cause %d\n"
-                "    S %08x C %08x A " TARGET_FMT_lx " D " TARGET_FMT_lx "\n",
-                __func__, env->PC[env->current_tc], env->CP0_EPC, cause,
+        fprintf(logfile, "%s: PC %08x EPC %08x cause %d excp %d\n"
+                "    S %08x C %08x A %08x D %08x\n",
+                __func__, env->PC, env->CP0_EPC, cause, env->exception_index,
                 env->CP0_Status, env->CP0_Cause, env->CP0_BadVAddr,
                 env->CP0_DEPC);
     }
-#endif /* !defined(CONFIG_USER_ONLY) */
     env->exception_index = EXCP_NONE;
 }
-
-void r4k_invalidate_tlb (CPUState *env, int idx, int use_extra)
-{
-    r4k_tlb_t *tlb;
-    target_ulong addr;
-    target_ulong end;
-    uint8_t ASID = env->CP0_EntryHi & 0xFF;
-    target_ulong mask;
-
-    tlb = &env->tlb->mmu.r4k.tlb[idx];
-    /* The qemu TLB is flushed when the ASID changes, so no need to
-       flush these entries again.  */
-    if (tlb->G == 0 && tlb->ASID != ASID) {
-        return;
-    }
-
-    if (use_extra && env->tlb->tlb_in_use < MIPS_TLB_MAX) {
-        /* For tlbwr, we can shadow the discarded entry into
-	   a new (fake) TLB entry, as long as the guest can not
-	   tell that it's there.  */
-        env->tlb->mmu.r4k.tlb[env->tlb->tlb_in_use] = *tlb;
-        env->tlb->tlb_in_use++;
-        return;
-    }
-
-    /* 1k pages are not supported. */
-    mask = tlb->PageMask | ~(TARGET_PAGE_MASK << 1);
-    if (tlb->V0) {
-        addr = tlb->VPN & ~mask;
-#if defined(TARGET_MIPS64)
-        if (addr >= (0xFFFFFFFF80000000ULL & env->SEGMask)) {
-            addr |= 0x3FFFFF0000000000ULL;
-        }
-#endif
-        end = addr | (mask >> 1);
-        while (addr < end) {
-            tlb_flush_page (env, addr);
-            addr += TARGET_PAGE_SIZE;
-        }
-    }
-    if (tlb->V1) {
-        addr = (tlb->VPN & ~mask) | ((mask >> 1) + 1);
-#if defined(TARGET_MIPS64)
-        if (addr >= (0xFFFFFFFF80000000ULL & env->SEGMask)) {
-            addr |= 0x3FFFFF0000000000ULL;
-        }
-#endif
-        end = addr | mask;
-        while (addr < end) {
-            tlb_flush_page (env, addr);
-            addr += TARGET_PAGE_SIZE;
-        }
-    }
-}
+#endif /* !defined(CONFIG_USER_ONLY) */

@@ -313,7 +313,7 @@ typedef struct disassemble_info {
   int (* symbol_at_address_func)
     PARAMS ((bfd_vma addr, struct disassemble_info * info));
 
-  /* These are for buffer_read_memory.  */
+  /* These are for _buffer_read_memory.  */
   bfd_byte *buffer;
   bfd_vma buffer_vma;
   int buffer_length;
@@ -407,10 +407,10 @@ extern disassembler_ftype disassembler	PARAMS ((bfd *));
 
 /* Here is a function which callers may wish to use for read_memory_func.
    It gets bytes from a buffer.  */
-extern int buffer_read_memory
+extern int _buffer_read_memory
   PARAMS ((bfd_vma, bfd_byte *, int, struct disassemble_info *));
 
-/* This function goes with buffer_read_memory.
+/* This function goes with _buffer_read_memory.
    It prints a message using info->fprintf_func and info->stream.  */
 extern void perror_memory PARAMS ((int, bfd_vma, struct disassemble_info *));
 
@@ -447,7 +447,7 @@ extern int generic_symbol_at_address
   (INFO).buffer = NULL, \
   (INFO).buffer_vma = 0, \
   (INFO).buffer_length = 0, \
-  (INFO).read_memory_func = buffer_read_memory, \
+  (INFO).read_memory_func = _buffer_read_memory, \
   (INFO).memory_error_func = perror_memory, \
   (INFO).print_address_func = generic_print_address, \
   (INFO).symbol_at_address_func = generic_symbol_at_address, \

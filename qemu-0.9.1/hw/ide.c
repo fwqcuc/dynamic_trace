@@ -31,6 +31,9 @@
 #include "qemu-timer.h"
 #include "sysemu.h"
 #include "ppc_mac.h"
+#if TAINT_ENABLED
+#include "taintcheck.h"
+#endif
 
 /* debug IDE devices */
 //#define DEBUG_IDE
@@ -410,6 +413,9 @@ typedef struct BMDMAState {
     IDEState *ide_if;
     BlockDriverCompletionFunc *dma_cb;
     BlockDriverAIOCB *aiocb;
+#if TAINT_ENABLED
+	int64_t	sector;
+#endif    
 } BMDMAState;
 
 typedef struct PCIIDEState {
@@ -802,9 +808,17 @@ static int dma_buf_rw(BMDMAState *bm, int is_write)
             if (is_write) {
                 cpu_physical_memory_write(bm->cur_prd_addr,
                                           s->io_buffer + s->io_buffer_index, l);
+#if TAINT_ENABLED
+				if(bm->sector >= 0)
+					taintcheck_chk_hdread(bm->cur_prd_addr, l, bm->sector, s->bs);
+#endif
             } else {
                 cpu_physical_memory_read(bm->cur_prd_addr,
                                           s->io_buffer + s->io_buffer_index, l);
+#if TAINT_ENABLED
+				if(bm->sector >= 0)
+					taintcheck_chk_hdwrite(bm->cur_prd_addr, l, bm->sector, s->bs);
+#endif
             }
             bm->cur_prd_addr += l;
             bm->cur_prd_len -= l;
@@ -853,6 +867,9 @@ static void ide_read_dma_cb(void *opaque, int ret)
     s->io_buffer_size = n * 512;
 #ifdef DEBUG_AIO
     printf("aio_read: sector_num=%lld n=%d\n", sector_num, n);
+#endif
+#if TAINT_ENABLED
+    bm->sector = sector_num;
 #endif
     bm->aiocb = bdrv_aio_read(s->bs, sector_num, s->io_buffer, n,
                               ide_read_dma_cb, bm);
@@ -955,6 +972,9 @@ static void ide_write_dma_cb(void *opaque, int ret)
         goto eot;
 #ifdef DEBUG_AIO
     printf("aio_write: sector_num=%lld n=%d\n", sector_num, n);
+#endif
+#if TAINT_ENABLED
+    bm->sector = sector_num;
 #endif
     bm->aiocb = bdrv_aio_write(s->bs, sector_num, s->io_buffer, n,
                                ide_write_dma_cb, bm);
@@ -2283,6 +2303,9 @@ static void ide_data_writew(void *opaque, uint32_t addr, uint32_t val)
     IDEState *s = ((IDEState *)opaque)->cur_drive;
     uint8_t *p;
 
+#if TAINT_ENABLED
+    taintcheck_chk_hdout(2, ide_get_sector(s), s->data_ptr-s->io_buffer, s->bs);
+#endif    
     p = s->data_ptr;
     *(uint16_t *)p = le16_to_cpu(val);
     p += 2;
@@ -2296,6 +2319,10 @@ static uint32_t ide_data_readw(void *opaque, uint32_t addr)
     IDEState *s = ((IDEState *)opaque)->cur_drive;
     uint8_t *p;
     int ret;
+
+#if TAINT_ENABLED
+    taintcheck_chk_hdin(2, ide_get_sector(s), s->data_ptr-s->io_buffer, s->bs);
+#endif    
     p = s->data_ptr;
     ret = cpu_to_le16(*(uint16_t *)p);
     p += 2;
@@ -2310,6 +2337,9 @@ static void ide_data_writel(void *opaque, uint32_t addr, uint32_t val)
     IDEState *s = ((IDEState *)opaque)->cur_drive;
     uint8_t *p;
 
+#if TAINT_ENABLED
+    taintcheck_chk_hdout(4, ide_get_sector(s), s->data_ptr-s->io_buffer, s->bs);
+#endif    
     p = s->data_ptr;
     *(uint32_t *)p = le32_to_cpu(val);
     p += 4;
@@ -2324,6 +2354,9 @@ static uint32_t ide_data_readl(void *opaque, uint32_t addr)
     uint8_t *p;
     int ret;
 
+#if TAINT_ENABLED
+    taintcheck_chk_hdin(4, ide_get_sector(s), s->data_ptr-s->io_buffer, s->bs);
+#endif    
     p = s->data_ptr;
     ret = cpu_to_le32(*(uint32_t *)p);
     p += 4;
@@ -2631,6 +2664,9 @@ static void ide_dma_start(IDEState *s, BlockDriverCompletionFunc *dma_cb)
     bm->cur_prd_last = 0;
     bm->cur_prd_addr = 0;
     bm->cur_prd_len = 0;
+#if TAINT_ENABLED 
+	bm->sector = -1;
+#endif	   
     if (bm->status & BM_STATUS_DMAING) {
         bm->dma_cb(bm, 0);
     }

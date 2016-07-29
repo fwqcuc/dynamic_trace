@@ -40,6 +40,8 @@
 #include "qemu-timer.h" /* for ticks_per_sec */
 #endif
 
+#include "TEMU_main.h"
+
 //#define DEBUG
 //#define DEBUG_COMPLETION
 
@@ -61,6 +63,7 @@
  *
  */
 
+#ifndef _TEMU_MAIN_H_INCLUDED_
 typedef struct term_cmd_t {
     const char *name;
     const char *args_type;
@@ -68,6 +71,7 @@ typedef struct term_cmd_t {
     const char *params;
     const char *help;
 } term_cmd_t;
+#endif
 
 #define MAX_MON 4
 static CharDriverState *monitor_hd[MAX_MON];
@@ -196,8 +200,12 @@ static void help_cmd(const char *name)
 {
     if (name && !strcmp(name, "info")) {
         help_cmd1(info_cmds, "info ", NULL);
+        //TEMU plugin info commands
+		if(temu_plugin) help_cmd1(temu_plugin->info_cmds, "info ", NULL);
     } else {
         help_cmd1(term_cmds, "", name);
+        //TEMU plugin help commands
+		if(temu_plugin) help_cmd1(temu_plugin->term_cmds, "", name);
         if (name && !strcmp(name, "log")) {
             CPULogItem *item;
             term_printf("Log items (comma separated):\n");
@@ -236,6 +244,14 @@ static void do_info(const char *item)
         if (compare_cmd(item, cmd->name))
             goto found;
     }
+
+    //TEMU plugin help commands
+    if (!temu_plugin) goto help;
+    for(cmd = temu_plugin->info_cmds; cmd->name != NULL; cmd++) {
+        if (compare_cmd(item, cmd->name)) 
+            goto found;
+    }
+
  help:
     help_cmd("info");
     return;
@@ -897,7 +913,11 @@ static int get_keycode(const char *key)
     return -1;
 }
 
+#ifdef _TEMU_MAIN_H_INCLUDED_
+void do_send_key(const char *string)
+#else
 static void do_send_key(const char *string)
+#endif
 {
     char keybuf[16], *q;
     uint8_t keycodes[16];
@@ -1326,6 +1346,15 @@ static term_cmd_t term_cmds[] = {
        "capture index", "stop capture" },
     { "memsave", "lis", do_memory_save,
       "addr size file", "save to disk virtual memory dump starting at 'addr' of size 'size'", },
+    //TEMU commands   
+    { "load_plugin", "F", do_load_plugin,
+      "path to the plugin", "TEMU command: load a specified TEMU plugin", },
+    { "unload_plugin", "", do_unload_plugin,
+      "", "TEMU command: unload the TEMU plugin"},
+    { "enable_emulation", "", do_enable_emulation,
+      "", "TEMU command: enable emulation (disable virtualization mode)"},
+    { "disable_emulation", "", do_disable_emulation,
+      "", "TEMU command: disable emulation (switch to virtualization mode)"},
     { NULL, NULL, },
 };
 
@@ -1385,6 +1414,10 @@ static term_cmd_t info_cmds[] = {
 #if defined(CONFIG_SLIRP)
     { "slirp", "", do_info_slirp,
       "", "show SLIRP statistics", },
+#endif
+#if TAINT_ENABLED
+    { "taintmem", "", do_info_taintmem,
+      "", "TEMU command: show the size of tainted memory", },
 #endif
     { NULL, NULL, },
 };
@@ -2068,6 +2101,13 @@ static void monitor_handle_command(const char *cmdline)
         if (compare_cmd(cmdname, cmd->name))
             goto found;
     }
+    //TEMU plugin commands
+    if(temu_plugin) {
+        for(cmd = temu_plugin->term_cmds; cmd->name != NULL; cmd++) {
+            if (compare_cmd(cmdname, cmd->name)) 
+                goto found;
+        }
+    }
     term_printf("unknown command: '%s'\n", cmdname);
     return;
  found:
@@ -2481,12 +2521,23 @@ void readline_find_completion(const char *cmdline)
         for(cmd = term_cmds; cmd->name != NULL; cmd++) {
             cmd_completion(cmdname, cmd->name);
         }
+		//TEMU plugin commands
+		if(temu_plugin)
+            for(cmd = temu_plugin->term_cmds; cmd->name != NULL; cmd++) {
+                cmd_completion(cmdname, cmd->name);
+            }
     } else {
         /* find the command */
         for(cmd = term_cmds; cmd->name != NULL; cmd++) {
             if (compare_cmd(args[0], cmd->name))
                 goto found;
         }
+        //TEMU plugin commands
+        if(temu_plugin)
+            for(cmd = temu_plugin->term_cmds; cmd->name != NULL; cmd++) {
+                if (compare_cmd(args[0], cmd->name))
+                    goto found;
+            }
         return;
     found:
         ptype = cmd->args_type;
@@ -2516,6 +2567,11 @@ void readline_find_completion(const char *cmdline)
                 for(cmd = info_cmds; cmd->name != NULL; cmd++) {
                     cmd_completion(str, cmd->name);
                 }
+				//TEMU plugin info commands
+				if (temu_plugin)
+                    for(cmd = temu_plugin->info_cmds; cmd->name != NULL; cmd++) {
+                        cmd_completion(str, cmd->name);
+                    }
             } else if (!strcmp(cmd->name, "sendkey")) {
                 completion_index = strlen(str);
                 for(key = key_defs; key->name != NULL; key++) {

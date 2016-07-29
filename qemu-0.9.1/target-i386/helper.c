@@ -19,6 +19,7 @@
  */
 #include "exec.h"
 #include "host-utils.h"
+#include "TEMU_main.h"
 
 //#define DEBUG_PCALL
 
@@ -557,7 +558,15 @@ do {\
         ESP = (val);\
 } while (0)
 #else
+#if TAINT_ENABLED 
+#define SET_ESP(val, sp_mask) \
+do { \
+  ESP = (ESP & ~(sp_mask)) | ((val) & (sp_mask)); \
+  taintcheck_reg_clean(R_ESP); \
+} while (0)
+#else
 #define SET_ESP(val, sp_mask) ESP = (ESP & ~(sp_mask)) | ((val) & (sp_mask))
+#endif
 #endif
 
 /* XXX: add a is_user flag to have proper security support */
@@ -992,6 +1001,9 @@ void helper_syscall(int next_eip_addend)
         int code64;
 
         ECX = env->eip + next_eip_addend;
+#if TAINT_ENABLED
+   		taintcheck_reg_clean(R_ECX);
+#endif       
         env->regs[11] = compute_eflags();
 
         code64 = env->hflags & HF_CS64_MASK;
@@ -1016,7 +1028,9 @@ void helper_syscall(int next_eip_addend)
 #endif
     {
         ECX = (uint32_t)(env->eip + next_eip_addend);
-
+#if TAINT_ENABLED
+   		taintcheck_reg_clean(R_ECX);
+#endif       
         cpu_x86_set_cpl(env, 0);
         cpu_x86_load_seg_cache(env, R_CS, selector & 0xfffc,
                            0, 0xffffffff,
@@ -1184,7 +1198,8 @@ void do_interrupt_user(int intno, int is_int, int error_code,
  */
 void do_interrupt(int intno, int is_int, int error_code,
                   target_ulong next_eip, int is_hw)
-{
+{	
+	TEMU_do_interrupt(intno, is_int, next_eip);
     if (loglevel & CPU_LOG_INT) {
         if ((env->cr[0] & CR0_PE_MASK)) {
             static int count;
@@ -1628,6 +1643,10 @@ void helper_divl_EAX_T0(void)
         raise_exception(EXCP00_DIVZ);
     EAX = (uint32_t)q;
     EDX = (uint32_t)r;
+#if TAINT_ENABLED
+    taintcheck_fn3regs(R_EAX, R_EDX, R_T0, R_EAX, 4);
+    taintcheck_reg2reg(R_EAX, R_EDX, 4);
+#endif
 }
 
 void helper_idivl_EAX_T0(void)
@@ -1650,6 +1669,10 @@ void helper_idivl_EAX_T0(void)
         raise_exception(EXCP00_DIVZ);
     EAX = (uint32_t)q;
     EDX = (uint32_t)r;
+#if TAINT_ENABLED
+    taintcheck_fn3regs(R_EAX, R_EDX, R_T0, R_EAX, 4);
+    taintcheck_reg2reg(R_EAX, R_EDX, 4);
+#endif
 }
 
 void helper_cmpxchg8b(void)
@@ -1658,13 +1681,23 @@ void helper_cmpxchg8b(void)
     int eflags;
 
     eflags = cc_table[CC_OP].compute_all();
+#if TAINT_ENABLED
+    T0 = TC_ldl_data(A0, R_T0*4);
+    T1 = TC_ldl_data(A0+4, R_T1*4);
+    d = ((uint64_t)T1<<32) | T0;
+#else
     d = ldq(A0);
+#endif
     if (d == (((uint64_t)EDX << 32) | EAX)) {
         stq(A0, ((uint64_t)ECX << 32) | EBX);
         eflags |= CC_Z;
     } else {
         EDX = d >> 32;
         EAX = d;
+#if TAINT_ENABLED
+        taintcheck_reg2reg(R_T1, R_EDX, 4);
+        taintcheck_reg2reg(R_T0, R_EAX, 4);
+#endif
         eflags &= ~CC_Z;
     }
     CC_SRC = eflags;
@@ -1765,6 +1798,9 @@ void helper_cpuid(void)
         EDX = 0;
         break;
     }
+#if TAINT_ENABLED
+    taintcheck_reg_clean2(0, 16);
+#endif
 }
 
 void helper_enter_level(int level, int data32)
@@ -2607,6 +2643,9 @@ static inline void helper_ret_protected(int shift, int is_iret, int addend)
 
     env->eip = new_eip & 0xffff;
     ESP = new_esp;
+#if TAINT_ENABLED
+	taintcheck_reg_clean(R_ESP);
+#endif       
 }
 
 void helper_iret_protected(int shift, int next_eip)
@@ -2640,6 +2679,7 @@ void helper_iret_protected(int shift, int next_eip)
         cpu_loop_exit();
     }
 #endif
+	TEMU_after_iret_protected();
 }
 
 void helper_lret_protected(int shift, int addend)
@@ -2672,6 +2712,9 @@ void helper_sysenter(void)
                            DESC_W_MASK | DESC_A_MASK);
     ESP = env->sysenter_esp;
     EIP = env->sysenter_eip;
+#if TAINT_ENABLED
+	taintcheck_reg_clean(R_ESP);
+#endif       
 }
 
 void helper_sysexit(void)
@@ -2695,6 +2738,9 @@ void helper_sysexit(void)
                            DESC_W_MASK | DESC_A_MASK);
     ESP = ECX;
     EIP = EDX;
+#if TAINT_ENABLED
+	taintcheck_reg_clean(R_ESP);
+#endif       
 #ifdef USE_KQEMU
     if (kqemu_is_ok(env)) {
         env->exception_index = -1;
@@ -2747,6 +2793,10 @@ void helper_rdtsc(void)
     val = cpu_get_tsc(env);
     EAX = (uint32_t)(val);
     EDX = (uint32_t)(val >> 32);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_EAX);
+    taintcheck_reg_clean(R_EDX);
+#endif
 }
 
 void helper_rdpmc(void)
@@ -2895,6 +2945,10 @@ void helper_rdmsr(void)
     }
     EAX = (uint32_t)(val);
     EDX = (uint32_t)(val >> 32);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_EAX);
+    taintcheck_reg_clean(R_EDX);
+#endif
 }
 #endif
 
@@ -2938,6 +2992,9 @@ void helper_lsl(void)
     }
     limit = get_seg_limit(e1, e2);
     T1 = limit;
+#if TAINT_ENABLED
+	taintcheck_reg_clean(R_T1);
+#endif
     CC_SRC = eflags | CC_Z;
 }
 
@@ -2985,6 +3042,9 @@ void helper_lar(void)
         }
     }
     T1 = e2 & 0x00f0ff00;
+#if TAINT_ENABLED
+	taintcheck_reg_clean(R_T1);
+#endif
     CC_SRC = eflags | CC_Z;
 }
 
@@ -3824,6 +3884,14 @@ void helper_hlt(void)
     env->hflags &= ~HF_INHIBIT_IRQ_MASK; /* needed if sti is just before */
     env->hflags |= HF_HALTED_MASK;
     env->exception_index = EXCP_HLT;
+#ifdef QUIT_WHEN_HALTED //TEMU
+    //we check the eip value, because there are many halt instructions even 
+    //when Windows is still alive. This is just a hack. We need better solution.
+	if(env->eip == 0x806f1046) {
+        term_printf("halted!!!\n");
+	    exit(1);
+	}
+#endif
     cpu_loop_exit();
 }
 

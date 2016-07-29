@@ -1,6 +1,6 @@
 /*
  *  SH4 emulation
- *
+ * 
  *  Copyright (c) 2005 Samuel Tardieu
  *
  * This library is free software; you can redistribute it and/or
@@ -25,8 +25,6 @@
 #define TARGET_LONG_BITS 32
 #define TARGET_HAS_ICE 1
 
-#define ELF_MACHINE	EM_SH
-
 #include "cpu-defs.h"
 
 #include "softfloat.h"
@@ -46,16 +44,16 @@
 #define FPSCR_SZ (1 << 20)
 #define FPSCR_PR (1 << 19)
 #define FPSCR_DN (1 << 18)
-#define DELAY_SLOT             (1 << 0)
+
+#define DELAY_SLOT             (1 << 0) /* Must be the same as SR_T.  */
+/* This flag is set if the next insn is a delay slot for a conditional jump.
+   The dynamic value of the DELAY_SLOT determines whether the jup is taken. */
 #define DELAY_SLOT_CONDITIONAL (1 << 1)
-#define DELAY_SLOT_TRUE        (1 << 2)
-#define DELAY_SLOT_CLEARME     (1 << 3)
-/* The dynamic value of the DELAY_SLOT_TRUE flag determines whether the jump
- * after the delay slot should be taken or not. It is calculated from SR_T.
- *
- * It is unclear if it is permitted to modify the SR_T flag in a delay slot.
- * The use of DELAY_SLOT_TRUE flag makes us accept such SR_T modification.
- */
+/* Those are used in contexts only */
+#define BRANCH                 (1 << 2)
+#define BRANCH_CONDITIONAL     (1 << 3)
+#define MODE_CHANGE            (1 << 4)	/* Potential MD|RB change */
+#define BRANCH_EXCEPTION       (1 << 5)	/* Branch after exception */
 
 /* XXXXX The structure could be made more compact */
 typedef struct tlb_t {
@@ -77,12 +75,10 @@ typedef struct tlb_t {
 #define UTLB_SIZE 64
 #define ITLB_SIZE 4
 
-#define NB_MMU_MODES 2
-
 typedef struct CPUSH4State {
     uint32_t flags;		/* general execution flags */
     uint32_t gregs[24];		/* general registers */
-    float32 fregs[32];		/* floating point registers */
+    uint32_t fregs[32];		/* floating point registers */
     uint32_t sr;		/* status register */
     uint32_t ssr;		/* saved status register */
     uint32_t spc;		/* saved program counter */
@@ -101,7 +97,6 @@ typedef struct CPUSH4State {
     /* temporary float registers */
     float32 ft0, ft1;
     float64 dt0, dt1;
-    float_status fp_status;
 
     /* Those belong to the specific unit (SH7750) but are handled here */
     uint32_t mmucr;		/* MMU control register */
@@ -117,34 +112,18 @@ typedef struct CPUSH4State {
     jmp_buf jmp_env;
     int user_mode_only;
     int interrupt_request;
-    int halted;
     int exception_index;
      CPU_COMMON tlb_t utlb[UTLB_SIZE];	/* unified translation table */
     tlb_t itlb[ITLB_SIZE];	/* instruction translation table */
-    void *intc_handle;
 } CPUSH4State;
 
-CPUSH4State *cpu_sh4_init(const char *cpu_model);
+CPUSH4State *cpu_sh4_init(void);
 int cpu_sh4_exec(CPUSH4State * s);
-int cpu_sh4_signal_handler(int host_signum, void *pinfo,
-                           void *puc);
+struct siginfo;
+int cpu_sh4_signal_handler(int hostsignum, struct siginfo *info,
+			   void *puc);
 
 #include "softfloat.h"
-
-#define CPUState CPUSH4State
-#define cpu_init cpu_sh4_init
-#define cpu_exec cpu_sh4_exec
-#define cpu_gen_code cpu_sh4_gen_code
-#define cpu_signal_handler cpu_sh4_signal_handler
-
-/* MMU modes definitions */
-#define MMU_MODE0_SUFFIX _kernel
-#define MMU_MODE1_SUFFIX _user
-#define MMU_USER_IDX 1
-static inline int cpu_mmu_index (CPUState *env)
-{
-    return (env->sr & SR_MD) == 0 ? 1 : 0;
-}
 
 #include "cpu-all.h"
 

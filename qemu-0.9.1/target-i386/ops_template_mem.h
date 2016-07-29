@@ -1,7 +1,7 @@
 /*
  *  i386 micro operations (included several times to generate
  *  different operand sizes)
- *
+ * 
  *  Copyright (c) 2003 Fabrice Bellard
  *
  * This library is free software; you can redistribute it and/or
@@ -78,16 +78,28 @@ void OPPROTO glue(glue(op_rol, MEM_SUFFIX), _T0_T1_cc)(void)
         src = T0;
         T0 &= DATA_MASK;
         T0 = (T0 << count) | (T0 >> (DATA_BITS - count));
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+1, 3);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #else
         /* gcc 3.2 workaround. This is really a bug in gcc. */
         asm volatile("" : : "r" (T0));
 #endif
-        CC_SRC = (cc_table[CC_OP].compute_all() & ~(CC_O | CC_C)) |
-            (lshift(src ^ T0, 11 - (DATA_BITS - 1)) & CC_O) |
+        CC_SRC = (cc_table[CC_OP].compute_all() & ~(CC_O | CC_C)) | 
+            (lshift(src ^ T0, 11 - (DATA_BITS - 1)) & CC_O) | 
             (T0 & CC_C);
         CC_OP = CC_OP_EFLAGS;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_CC_SRC, R_T0, R_CC_SRC, DATA_BYTES);
+#endif
     }
     FORCE_RET();
 }
@@ -102,16 +114,28 @@ void OPPROTO glue(glue(op_ror, MEM_SUFFIX), _T0_T1_cc)(void)
         src = T0;
         T0 &= DATA_MASK;
         T0 = (T0 >> count) | (T0 << (DATA_BITS - count));
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+1, 3);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #else
         /* gcc 3.2 workaround. This is really a bug in gcc. */
         asm volatile("" : : "r" (T0));
 #endif
         CC_SRC = (cc_table[CC_OP].compute_all() & ~(CC_O | CC_C)) |
-            (lshift(src ^ T0, 11 - (DATA_BITS - 1)) & CC_O) |
+            (lshift(src ^ T0, 11 - (DATA_BITS - 1)) & CC_O) | 
             ((T0 >> (DATA_BITS - 1)) & CC_C);
         CC_OP = CC_OP_EFLAGS;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_CC_SRC, R_T0, R_CC_SRC, DATA_BYTES);
+#endif
     }
     FORCE_RET();
 }
@@ -123,8 +147,17 @@ void OPPROTO glue(glue(op_rol, MEM_SUFFIX), _T0_T1)(void)
     if (count) {
         T0 &= DATA_MASK;
         T0 = (T0 << count) | (T0 >> (DATA_BITS - count));
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+1, 3);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     }
     FORCE_RET();
@@ -137,8 +170,17 @@ void OPPROTO glue(glue(op_ror, MEM_SUFFIX), _T0_T1)(void)
     if (count) {
         T0 &= DATA_MASK;
         T0 = (T0 >> count) | (T0 << (DATA_BITS - count));
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+1, 3);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     }
     FORCE_RET();
@@ -164,11 +206,20 @@ void OPPROTO glue(glue(op_rcl, MEM_SUFFIX), _T0_T1_cc)(void)
         if (count > 1)
             res |= T0 >> (DATA_BITS + 1 - count);
         T0 = res;
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+1, 3);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+        
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
 #endif
+#endif
         CC_SRC = (eflags & ~(CC_C | CC_O)) |
-            (lshift(src ^ T0, 11 - (DATA_BITS - 1)) & CC_O) |
+            (lshift(src ^ T0, 11 - (DATA_BITS - 1)) & CC_O) | 
             ((src >> (DATA_BITS - count)) & CC_C);
         CC_OP = CC_OP_EFLAGS;
     }
@@ -199,9 +250,12 @@ void OPPROTO glue(glue(op_rcr, MEM_SUFFIX), _T0_T1_cc)(void)
         glue(st, MEM_SUFFIX)(A0, T0);
 #endif
         CC_SRC = (eflags & ~(CC_C | CC_O)) |
-            (lshift(src ^ T0, 11 - (DATA_BITS - 1)) & CC_O) |
+            (lshift(src ^ T0, 11 - (DATA_BITS - 1)) & CC_O) | 
             ((src >> (count - 1)) & CC_C);
         CC_OP = CC_OP_EFLAGS;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_CC_SRC, R_T0, R_CC_SRC, DATA_BYTES);
+#endif
     }
     FORCE_RET();
 }
@@ -215,12 +269,24 @@ void OPPROTO glue(glue(op_shl, MEM_SUFFIX), _T0_T1_cc)(void)
     if (count) {
         src = (DATA_TYPE)T0 << (count - 1);
         T0 = T0 << count;
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+1, 3);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
         CC_SRC = src;
         CC_DST = T0;
         CC_OP = CC_OP_SHLB + SHIFT;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_CC_SRC, R_T0, R_CC_SRC, DATA_BYTES);
+#endif
     }
     FORCE_RET();
 }
@@ -235,12 +301,25 @@ void OPPROTO glue(glue(op_shr, MEM_SUFFIX), _T0_T1_cc)(void)
         T0 &= DATA_MASK;
         src = T0 >> (count - 1);
         T0 = T0 >> count;
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+1, 3);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
         CC_SRC = src;
         CC_DST = T0;
         CC_OP = CC_OP_SARB + SHIFT;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, DATA_BYTES);
+		taintcheck_reg2reg(R_T0, R_CC_DST, DATA_BYTES);
+#endif
     }
     FORCE_RET();
 }
@@ -255,12 +334,25 @@ void OPPROTO glue(glue(op_sar, MEM_SUFFIX), _T0_T1_cc)(void)
         src = (DATA_STYPE)T0;
         T0 = src >> count;
         src = src >> (count - 1);
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+1, 3);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
         CC_SRC = src;
         CC_DST = T0;
         CC_OP = CC_OP_SARB + SHIFT;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, DATA_BYTES);
+		taintcheck_reg2reg(R_T0, R_CC_DST, DATA_BYTES);
+#endif
     }
     FORCE_RET();
 }
@@ -279,11 +371,25 @@ void OPPROTO glue(glue(op_shld, MEM_SUFFIX), _T0_T1_im_cc)(void)
     if (count > 16)
         res |= T1 << (count - 16);
     T0 = res >> 16;
+#if TAINT_ENABLED
+	taintcheck_reg_clean2(R_T1*4+2, 2);
+	taintcheck_reg_clean2(R_T0*4, 2);
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#endif
+
 #ifdef MEM_WRITE
-    glue(st, MEM_SUFFIX)(A0, T0);
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
+        glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     CC_SRC = tmp;
     CC_DST = T0;
+#if TAINT_FLAGS
+	taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, 4);
+	taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
 }
 
 void OPPROTO glue(glue(op_shld, MEM_SUFFIX), _T0_T1_ECX_cc)(void)
@@ -299,8 +405,18 @@ void OPPROTO glue(glue(op_shld, MEM_SUFFIX), _T0_T1_ECX_cc)(void)
         if (count > 16)
           res |= T1 << (count - 16);
         T0 = res >> 16;
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T1*4+2, 2);
+		taintcheck_reg_clean2(R_T0*4, 2);
+     	taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
         CC_SRC = tmp;
         CC_DST = T0;
@@ -321,11 +437,25 @@ void OPPROTO glue(glue(op_shrd, MEM_SUFFIX), _T0_T1_im_cc)(void)
     if (count > 16)
         res |= T1 << (32 - count);
     T0 = res;
+#if TAINT_ENABLED
+	taintcheck_reg_clean2(R_T0*4+2, 2);
+	taintcheck_reg_clean2(R_T1*4, 2);
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+    glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
     glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     CC_SRC = tmp;
     CC_DST = T0;
+#if TAINT_FLAGS
+	taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, 4);
+	taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
 }
 
 
@@ -342,12 +472,26 @@ void OPPROTO glue(glue(op_shrd, MEM_SUFFIX), _T0_T1_ECX_cc)(void)
         if (count > 16)
             res |= T1 << (32 - count);
         T0 = res;
+#if TAINT_ENABLED
+		taintcheck_reg_clean2(R_T0*4+2, 2);
+		taintcheck_reg_clean2(R_T1*4, 2);
+        taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
         CC_SRC = tmp;
         CC_DST = T0;
         CC_OP = CC_OP_SARB + SHIFT;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, 4);
+		taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
     }
     FORCE_RET();
 }
@@ -364,11 +508,23 @@ void OPPROTO glue(glue(op_shld, MEM_SUFFIX), _T0_T1_im_cc)(void)
     T1 &= DATA_MASK;
     tmp = T0 << (count - 1);
     T0 = (T0 << count) | (T1 >> (DATA_BITS - count));
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+    glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
     glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     CC_SRC = tmp;
     CC_DST = T0;
+#if TAINT_FLAGS
+	taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, 4);
+	taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
 }
 
 void OPPROTO glue(glue(op_shld, MEM_SUFFIX), _T0_T1_ECX_cc)(void)
@@ -382,12 +538,24 @@ void OPPROTO glue(glue(op_shld, MEM_SUFFIX), _T0_T1_ECX_cc)(void)
         T1 &= DATA_MASK;
         tmp = T0 << (count - 1);
         T0 = (T0 << count) | (T1 >> (DATA_BITS - count));
+#if TAINT_ENABLED
+        taintcheck_fn3regs(R_ECX, R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
         CC_SRC = tmp;
         CC_DST = T0;
         CC_OP = CC_OP_SHLB + SHIFT;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, 4);
+		taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
     }
     FORCE_RET();
 }
@@ -402,11 +570,23 @@ void OPPROTO glue(glue(op_shrd, MEM_SUFFIX), _T0_T1_im_cc)(void)
     T1 &= DATA_MASK;
     tmp = T0 >> (count - 1);
     T0 = (T0 >> count) | (T1 << (DATA_BITS - count));
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+    glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
     glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     CC_SRC = tmp;
     CC_DST = T0;
+#if TAINT_FLAGS
+	taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, 4);
+	taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
 }
 
 
@@ -421,12 +601,24 @@ void OPPROTO glue(glue(op_shrd, MEM_SUFFIX), _T0_T1_ECX_cc)(void)
         T1 &= DATA_MASK;
         tmp = T0 >> (count - 1);
         T0 = (T0 >> count) | (T1 << (DATA_BITS - count));
+#if TAINT_ENABLED
+        taintcheck_fn3regs(R_ECX, R_T0, R_T1, R_T0, DATA_BYTES);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
         CC_SRC = tmp;
         CC_DST = T0;
         CC_OP = CC_OP_SARB + SHIFT;
+#if TAINT_FLAGS
+		taintcheck_fn2regs(R_T1, R_T0, R_CC_SRC, 4);
+		taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
     }
     FORCE_RET();
 }
@@ -439,12 +631,24 @@ void OPPROTO glue(glue(op_adc, MEM_SUFFIX), _T0_T1_cc)(void)
     int cf;
     cf = cc_table[CC_OP].compute_c();
     T0 = T0 + T1 + cf;
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+    glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
     glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     CC_SRC = T1;
     CC_DST = T0;
     CC_OP = CC_OP_ADDB + SHIFT + cf * 4;
+#if TAINT_FLAGS
+	taintcheck_reg2reg(R_T1, R_CC_SRC, 4);
+	taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
 }
 
 void OPPROTO glue(glue(op_sbb, MEM_SUFFIX), _T0_T1_cc)(void)
@@ -452,12 +656,24 @@ void OPPROTO glue(glue(op_sbb, MEM_SUFFIX), _T0_T1_cc)(void)
     int cf;
     cf = cc_table[CC_OP].compute_c();
     T0 = T0 - T1 - cf;
+#if TAINT_ENABLED
+    taintcheck_fn2regs(R_T0, R_T1, R_T0, 4);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+    glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
     glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     CC_SRC = T1;
     CC_DST = T0;
     CC_OP = CC_OP_SUBB + SHIFT + cf * 4;
+#if TAINT_FLAGS
+	taintcheck_reg2reg(R_T1, R_CC_SRC, 4);
+	taintcheck_reg2reg(R_T0, R_CC_DST, 4);
+#endif
 }
 
 void OPPROTO glue(glue(op_cmpxchg, MEM_SUFFIX), _T0_T1_EAX_cc)(void)
@@ -468,14 +684,29 @@ void OPPROTO glue(glue(op_cmpxchg, MEM_SUFFIX), _T0_T1_EAX_cc)(void)
     dst = EAX - T0;
     if ((DATA_TYPE)dst == 0) {
         T0 = T1;
+#if TAINT_ENABLED
+        taintcheck_reg2reg(R_T1, R_T0, 4);
+#endif
+
 #ifdef MEM_WRITE
+#if TAINT_ENABLED
+        glue(TC_st, MEM_SUFFIX)(A0, T0, R_T0*4);
+#else
         glue(st, MEM_SUFFIX)(A0, T0);
+#endif
 #endif
     } else {
         EAX = (EAX & ~DATA_MASK) | (T0 & DATA_MASK);
+#if TAINT_ENABLED
+        taintcheck_reg2reg(R_T0, R_EAX, DATA_BYTES);
+#endif
     }
     CC_SRC = src;
     CC_DST = dst;
+#if TAINT_FLAGS
+	taintcheck_reg2reg(R_T0, R_CC_SRC, 4);
+	taintcheck_fn2regs(R_EAX, R_T0, R_CC_DST, 4);
+#endif
     FORCE_RET();
 }
 

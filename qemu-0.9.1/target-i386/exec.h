@@ -33,19 +33,30 @@
 register struct CPUX86State *env asm(AREG0);
 
 #if TARGET_LONG_BITS > HOST_LONG_BITS
-
+#if 1//TAINT_ENABLED
+#define T0 (env->regs[CPU_NB_REGS])
+#define T1 (env->regs[CPU_NB_REGS+1])
+#define T2 (env->regs[CPU_NB_REGS+2])
+#else
 /* no registers can be used */
 #define T0 (env->t0)
 #define T1 (env->t1)
 #define T2 (env->t2)
+#endif
 
 #else
 
+#if 1//TAINT_ENABLED
+#define T0 (env->regs[CPU_NB_REGS])
+#define T1 (env->regs[CPU_NB_REGS+1])
+#define T2 (env->regs[CPU_NB_REGS+2])
+#else
 /* XXX: use unsigned long instead of target_ulong - better code will
    be generated for 64 bit CPUs */
 register target_ulong T0 asm(AREG1);
 register target_ulong T1 asm(AREG2);
 register target_ulong T2 asm(AREG3);
+#endif
 
 /* if more registers are available, we define some registers too */
 #ifdef AREG4

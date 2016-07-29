@@ -27,7 +27,10 @@ endif
 
 LIBS+=$(AIOLIBS)
 
-all: $(TOOLS) $(DOCS) recurse-all 
+all: $(TOOLS) $(DOCS) recurse-all proj
+
+proj:
+	$(MAKE) -C $(PROJECT_NAME) all
 
 subdir-%: dyngen$(EXESUF) libqemu_common.a
 	$(MAKE) -C $(subst subdir-,,$@) all
@@ -148,6 +151,7 @@ clean:
 	rm -f *.o *.d *.a $(TOOLS) dyngen$(EXESUF) TAGS cscope.* *.pod *~ */*~
 	rm -f slirp/*.o slirp/*.d audio/*.o audio/*.d
 	$(MAKE) -C tests clean
+	$(MAKE) -C $(PROJECT_NAME) clean
 	for d in $(TARGET_DIRS); do \
 	$(MAKE) -C $$d $@ || exit 1 ; \
         done
@@ -191,6 +195,7 @@ endif
 	for d in $(TARGET_DIRS); do \
 	$(MAKE) -C $$d $@ || exit 1 ; \
         done
+	$(MAKE) -C $(PROJECT_NAME) install 
 
 # various test targets
 test speed: all
@@ -228,14 +233,25 @@ dvi: qemu-doc.dvi qemu-tech.dvi
 
 html: qemu-doc.html qemu-tech.html
 
-VERSION ?= $(shell cat VERSION)
-FILE = qemu-$(VERSION)
+# VERSION ?= $(shell cat VERSION)
+VERSION = 1.0
+FILE = temu-$(VERSION)
 
 # tar release (use 'make -k tar' on a checkouted tree)
 tar:
 	rm -rf /tmp/$(FILE)
 	cp -r . /tmp/$(FILE)
-	( cd /tmp ; tar zcvf ~/$(FILE).tar.gz $(FILE) --exclude CVS )
+	@# "tracecap-release" SVN is what becomes "tracecap"
+	@# in the release.
+	rm -rf /tmp/$(FILE)/tracecap
+	mv /tmp/$(FILE)/tracecap-release /tmp/$(FILE)/tracecap
+	@# Remove libraries used only for building tracecap:
+	rm -rf /tmp/$(FILE)/shared/llconf
+	rm -rf /tmp/$(FILE)/shared/sleuthkit
+	@# If the person building the release did a "make install"
+	@# according to the directions:
+	rm -rf /tmp/$(FILE)/install
+	( cd /tmp ; tar zcvf ~/$(FILE).tar.gz $(FILE) --exclude .svn --exclude tracecap-src)
 	rm -rf /tmp/$(FILE)
 
 # generate a binary distribution

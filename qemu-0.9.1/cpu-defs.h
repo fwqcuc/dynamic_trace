@@ -21,7 +21,7 @@
 #define CPU_DEFS_H
 
 #ifndef NEED_CPU_H
-#error cpu.h included from common code
+//#error cpu.h included from common code
 #endif
 
 #include "config.h"

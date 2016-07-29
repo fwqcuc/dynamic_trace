@@ -25,6 +25,10 @@
 #include "pci.h"
 #include "pc.h"
 #include "net.h"
+#include "TEMU_main.h"
+#if TAINT_ENABLED
+#include "taintcheck.h"
+#endif
 
 /* debug NE2000 card */
 //#define DEBUG_NE2000
@@ -294,6 +298,9 @@ static void ne2000_receive(void *opaque, const uint8_t *buf, int size)
     p[3] = total_len >> 8;
     index += 4;
 
+    //TEMU handle nic receive
+    TEMU_nic_receive(buf, size, index-NE2000_PMEM_START, s->start-NE2000_PMEM_START, s->stop-NE2000_PMEM_START);
+
     /* write packet data */
     while (size > 0) {
         if (index <= s->stop)
@@ -344,6 +351,8 @@ static void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
                     index -= NE2000_PMEM_SIZE;
                 /* fail safe: check range on the transmitted length  */
                 if (index + s->tcnt <= NE2000_PMEM_END) {
+                    //TEMU handle nic send
+                    TEMU_nic_send(index-NE2000_PMEM_START, s->tcnt, s->mem+index);
                     qemu_send_packet(s->vc, s->mem + index, s->tcnt);
                 }
                 /* signal end of transfer */
@@ -491,6 +500,7 @@ static inline void ne2000_mem_writeb(NE2000State *s, uint32_t addr,
     if (addr < 32 ||
         (addr >= NE2000_PMEM_START && addr < NE2000_MEM_SIZE)) {
         s->mem[addr] = val;
+        TEMU_nic_out(addr-NE2000_PMEM_START, 1);
     }
 }
 
@@ -501,6 +511,7 @@ static inline void ne2000_mem_writew(NE2000State *s, uint32_t addr,
     if (addr < 32 ||
         (addr >= NE2000_PMEM_START && addr < NE2000_MEM_SIZE)) {
         *(uint16_t *)(s->mem + addr) = cpu_to_le16(val);
+        TEMU_nic_out(addr-NE2000_PMEM_START, 2);
     }
 }
 
@@ -511,6 +522,7 @@ static inline void ne2000_mem_writel(NE2000State *s, uint32_t addr,
     if (addr < 32 ||
         (addr >= NE2000_PMEM_START && addr < NE2000_MEM_SIZE)) {
         cpu_to_le32wu((uint32_t *)(s->mem + addr), val);
+        TEMU_nic_out(addr-NE2000_PMEM_START, 4);
     }
 }
 
@@ -518,6 +530,7 @@ static inline uint32_t ne2000_mem_readb(NE2000State *s, uint32_t addr)
 {
     if (addr < 32 ||
         (addr >= NE2000_PMEM_START && addr < NE2000_MEM_SIZE)) {
+        TEMU_nic_in(addr-NE2000_PMEM_START, 1);
         return s->mem[addr];
     } else {
         return 0xff;
@@ -529,6 +542,7 @@ static inline uint32_t ne2000_mem_readw(NE2000State *s, uint32_t addr)
     addr &= ~1; /* XXX: check exact behaviour if not even */
     if (addr < 32 ||
         (addr >= NE2000_PMEM_START && addr < NE2000_MEM_SIZE)) {
+        TEMU_nic_in(addr-NE2000_PMEM_START, 2);
         return le16_to_cpu(*(uint16_t *)(s->mem + addr));
     } else {
         return 0xffff;
@@ -540,6 +554,7 @@ static inline uint32_t ne2000_mem_readl(NE2000State *s, uint32_t addr)
     addr &= ~1; /* XXX: check exact behaviour if not even */
     if (addr < 32 ||
         (addr >= NE2000_PMEM_START && addr < NE2000_MEM_SIZE)) {
+        TEMU_nic_in(addr-NE2000_PMEM_START, 4);
         return le32_to_cpupu((uint32_t *)(s->mem + addr));
     } else {
         return 0xffffffff;

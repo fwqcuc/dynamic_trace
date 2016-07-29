@@ -1036,4 +1036,7 @@ extern int64_t kqemu_ret_intr_count;
 
 #endif
 
+#include "taintcheck.h"
+#include "TEMU_mem_def.h"
+
 #endif /* CPU_ALL_H */

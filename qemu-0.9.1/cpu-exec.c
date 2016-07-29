@@ -20,6 +20,7 @@
 #include "config.h"
 #include "exec.h"
 #include "disas.h"
+#include "TEMU_main.h"
 
 #if !defined(CONFIG_SOFTMMU)
 #undef EAX
@@ -302,6 +303,7 @@ int cpu_exec(CPUState *env1)
         return EXCP_HALTED;
 
     cpu_single_env = env1;
+  	TEMU_update_cpustate();
 
     /* first we save global registers */
 #define SAVE_HOST_REGS 1

@@ -1,6 +1,6 @@
 /*
  *  MMX/SSE/SSE2/PNI support
- *
+ * 
  *  Copyright (c) 2005 Fabrice Bellard
  *
  * This library is free software; you can redistribute it and/or
@@ -556,6 +556,9 @@ void OPPROTO glue(op_movl_T0_mm, SUFFIX) (void)
     Reg *s;
     s = (Reg *)((char *)env + PARAM1);
     T0 = s->L(0);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif    
 }
 
 #ifdef TARGET_X86_64
@@ -863,12 +866,18 @@ void OPPROTO op_cvtss2si(void)
 {
     XMMReg *s = (XMMReg *)((char *)env + PARAM1);
     T0 = float32_to_int32(s->XMM_S(0), &env->sse_status);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_cvtsd2si(void)
 {
     XMMReg *s = (XMMReg *)((char *)env + PARAM1);
     T0 = float64_to_int32(s->XMM_D(0), &env->sse_status);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 #ifdef TARGET_X86_64
@@ -925,12 +934,18 @@ void OPPROTO op_cvttss2si(void)
 {
     XMMReg *s = (XMMReg *)((char *)env + PARAM1);
     T0 = float32_to_int32_round_to_zero(s->XMM_S(0), &env->sse_status);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_cvttsd2si(void)
 {
     XMMReg *s = (XMMReg *)((char *)env + PARAM1);
     T0 = float64_to_int32_round_to_zero(s->XMM_D(0), &env->sse_status);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 #ifdef TARGET_X86_64
@@ -938,12 +953,18 @@ void OPPROTO op_cvttss2sq(void)
 {
     XMMReg *s = (XMMReg *)((char *)env + PARAM1);
     T0 = float32_to_int64_round_to_zero(s->XMM_S(0), &env->sse_status);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_cvttsd2sq(void)
 {
     XMMReg *s = (XMMReg *)((char *)env + PARAM1);
     T0 = float64_to_int64_round_to_zero(s->XMM_D(0), &env->sse_status);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 #endif
 
@@ -1112,6 +1133,9 @@ void OPPROTO op_ucomiss(void)
     s1 = s->XMM_S(0);
     ret = float32_compare_quiet(s0, s1, &env->sse_status);
     CC_SRC = comis_eflags[ret + 1];
+#if TAINT_FLAGS
+	taintcheck_reg_clean(R_CC_SRC);
+#endif
     FORCE_RET();
 }
 
@@ -1127,6 +1151,9 @@ void OPPROTO op_comiss(void)
     s1 = s->XMM_S(0);
     ret = float32_compare(s0, s1, &env->sse_status);
     CC_SRC = comis_eflags[ret + 1];
+#if TAINT_FLAGS
+	taintcheck_reg_clean(R_CC_SRC);
+#endif
     FORCE_RET();
 }
 
@@ -1142,6 +1169,9 @@ void OPPROTO op_ucomisd(void)
     d1 = s->XMM_D(0);
     ret = float64_compare_quiet(d0, d1, &env->sse_status);
     CC_SRC = comis_eflags[ret + 1];
+#if TAINT_FLAGS
+	taintcheck_reg_clean(R_CC_SRC);
+#endif
     FORCE_RET();
 }
 
@@ -1157,6 +1187,9 @@ void OPPROTO op_comisd(void)
     d1 = s->XMM_D(0);
     ret = float64_compare(d0, d1, &env->sse_status);
     CC_SRC = comis_eflags[ret + 1];
+#if TAINT_FLAGS
+	taintcheck_reg_clean(R_CC_SRC);
+#endif
     FORCE_RET();
 }
 
@@ -1170,6 +1203,9 @@ void OPPROTO op_movmskps(void)
     b2 = s->XMM_L(2) >> 31;
     b3 = s->XMM_L(3) >> 31;
     T0 = b0 | (b1 << 1) | (b2 << 2) | (b3 << 3);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO op_movmskpd(void)
@@ -1180,6 +1216,9 @@ void OPPROTO op_movmskpd(void)
     b0 = s->XMM_L(1) >> 31;
     b1 = s->XMM_L(3) >> 31;
     T0 = b0 | (b1 << 1);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 #endif
@@ -1207,13 +1246,16 @@ void OPPROTO glue(op_pmovmskb, SUFFIX)(void)
     T0 |= (s->XMM_B(14) << 7) & 0x4000;
     T0 |= (s->XMM_B(15) << 8) & 0x8000;
 #endif
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO glue(op_pinsrw, SUFFIX) (void)
 {
     Reg *d = (Reg *)((char *)env + PARAM1);
     int pos = PARAM2;
-
+    
     d->W(pos) = T0;
 }
 
@@ -1221,8 +1263,11 @@ void OPPROTO glue(op_pextrw, SUFFIX) (void)
 {
     Reg *s = (Reg *)((char *)env + PARAM1);
     int pos = PARAM2;
-
+    
     T0 = s->W(pos);
+#if TAINT_ENABLED
+    taintcheck_reg_clean(R_T0);
+#endif
 }
 
 void OPPROTO glue(op_packsswb, SUFFIX) (void)

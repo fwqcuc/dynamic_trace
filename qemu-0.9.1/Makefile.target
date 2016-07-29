@@ -37,7 +37,7 @@ endif
 CPPFLAGS+=-I$(SRC_PATH)/linux-user -I$(SRC_PATH)/linux-user/$(TARGET_ABI_DIR)
 endif
 BASE_CFLAGS=
-BASE_LDFLAGS=
+BASE_LDFLAGS= 
 #CFLAGS+=-Werror
 LIBS=
 HELPER_CFLAGS=$(CFLAGS)
@@ -515,6 +515,7 @@ endif
 ifdef CONFIG_GDBSTUB
 VL_OBJS+=gdbstub.o
 endif
+LIBOBJS+=TEMU_main.o TEMU_physaddr_info.o taintcheck.o TEMU_vm_compress.o
 ifdef CONFIG_COCOA
 COCOA_LIBS=-F/System/Library/Frameworks -framework Cocoa -framework IOKit
 ifdef CONFIG_COREAUDIO
@@ -568,8 +569,10 @@ ifdef CONFIG_WIN32
 SDL_LIBS := $(filter-out -mwindows, $(SDL_LIBS)) -mconsole
 endif
 
+LDFLAGS+= -export-dynamic
 $(QEMU_SYSTEM): $(VL_OBJS) ../libqemu_common.a libqemu.a
 	$(CC) $(VL_LDFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS) $(SDL_LIBS) $(COCOA_LIBS) $(VL_LIBS)
+	cp $(QEMU_SYSTEM) $(SRC_PATH)/$(PROJECT_NAME)/temu
 
 depend: $(SRCS)
 	$(CC) -MM $(CFLAGS) $(CPPFLAGS) $(BASE_CFLAGS) $^ 1>.depend
@@ -612,6 +615,9 @@ op_helper.o: op_helper.c
 	$(CC) $(HELPER_CFLAGS) $(CPPFLAGS) $(BASE_CFLAGS) -c -o $@ $<
 endif
 
+#TEMU_main.o: TEMU_main.c
+#	$(CC) $(HELPER_CFLAGS) $(CPPFLAGS) $(BASE_CFLAGS) -c -o $@ $<
+
 cpu-exec.o: cpu-exec.c
 	$(CC) $(HELPER_CFLAGS) $(CPPFLAGS) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -623,8 +629,11 @@ signal.o: signal.c
 %.o: %.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(BASE_CFLAGS) -c -o $@ $<
 
+#taintcheck.o: taintcheck.c
+#	$(CC) -g $(CPPFLAGS) $(BASE_CFLAGS) -c -o $@ $<
+
 %.o: %.S
-	$(CC) $(CPPFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
 clean:
 	rm -f *.o *.a *~ $(PROGS) gen-op.h opc.h op.h nwfpe/*.o fpu/*.o

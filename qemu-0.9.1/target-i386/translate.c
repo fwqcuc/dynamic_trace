@@ -29,6 +29,10 @@
 #include "exec-all.h"
 #include "disas.h"
 
+#if TAINT_ENABLED
+#include "taintcheck.h"
+#endif
+
 /* XXX: move that elsewhere */
 static uint16_t *gen_opc_ptr;
 static uint32_t *gen_opparam_ptr;
@@ -68,6 +72,10 @@ static int x86_64_hregs;
 #endif
 
 typedef struct DisasContext {
+#ifdef TAINT_ENABLED
+	int modrm_base, modrm_index;
+	int ldst_reg;
+#endif
     /* current insn context */
     int override; /* -1 if no override */
     int prefix;
@@ -337,10 +345,18 @@ static GenOpFunc *gen_op_mov_TN_reg[NB_OP_SIZES][2][CPU_NB_REGS] =
 {
     [OT_BYTE] = {
         {
+#if 0       
             gen_op_movl_T0_EAX,
             gen_op_movl_T0_ECX,
             gen_op_movl_T0_EDX,
-            gen_op_movl_T0_EBX,
+            gen_op_movl_T0_EBX,*/ //changed by Heng Yin
+#else            
+            gen_op_movb_T0_EAX,
+            gen_op_movb_T0_ECX,
+            gen_op_movb_T0_EDX,
+            gen_op_movb_T0_EBX,
+#endif            
+
 #ifdef TARGET_X86_64
             gen_op_movl_T0_ESP_wrapper,
             gen_op_movl_T0_EBP_wrapper,
@@ -362,10 +378,18 @@ static GenOpFunc *gen_op_mov_TN_reg[NB_OP_SIZES][2][CPU_NB_REGS] =
 #endif
         },
         {
+#if 0
             gen_op_movl_T1_EAX,
             gen_op_movl_T1_ECX,
             gen_op_movl_T1_EDX,
             gen_op_movl_T1_EBX,
+#else
+            gen_op_movb_T1_EAX,
+            gen_op_movb_T1_ECX,
+            gen_op_movb_T1_EDX,
+            gen_op_movb_T1_EBX,
+#endif            
+
 #ifdef TARGET_X86_64
             gen_op_movl_T1_ESP_wrapper,
             gen_op_movl_T1_EBP_wrapper,
@@ -389,10 +413,10 @@ static GenOpFunc *gen_op_mov_TN_reg[NB_OP_SIZES][2][CPU_NB_REGS] =
     },
     [OT_WORD] = {
         {
-            DEF_REGS(gen_op_movl_T0_, )
+            DEF_REGS(gen_op_movw_T0_, ) //TEMU: changed by Heng Yin
         },
         {
-            DEF_REGS(gen_op_movl_T1_, )
+            DEF_REGS(gen_op_movw_T1_, )
         },
     },
     [OT_LONG] = {
@@ -418,6 +442,11 @@ static GenOpFunc *gen_op_mov_TN_reg[NB_OP_SIZES][2][CPU_NB_REGS] =
 static GenOpFunc *gen_op_movl_A0_reg[CPU_NB_REGS] = {
     DEF_REGS(gen_op_movl_A0_, )
 };
+
+static GenOpFunc *gen_op_movw_A0_reg[CPU_NB_REGS] = { //TEMU: added by Heng Yin
+    DEF_REGS(gen_op_movw_A0_, )
+};
+
 
 static GenOpFunc *gen_op_addl_A0_reg_sN[4][CPU_NB_REGS] = {
     [0] = {
@@ -839,7 +868,8 @@ static inline void gen_string_movl_A0_ESI(DisasContext *s)
         /* 16 address, always override */
         if (override < 0)
             override = R_DS;
-        gen_op_movl_A0_reg[R_ESI]();
+       // gen_op_movl_A0_reg[R_ESI]();
+		gen_op_movw_A0_reg[R_ESI](); //TEMU: changed by Heng Yin
         gen_op_andl_A0_ffff();
         gen_op_addl_A0_seg(offsetof(CPUX86State,segs[override].base));
     }
@@ -860,7 +890,8 @@ static inline void gen_string_movl_A0_EDI(DisasContext *s)
             gen_op_movl_A0_reg[R_EDI]();
         }
     } else {
-        gen_op_movl_A0_reg[R_EDI]();
+        //gen_op_movl_A0_reg[R_EDI]();
+		gen_op_movw_A0_reg[R_EDI](); //TEMU: changed by Heng Yin
         gen_op_andl_A0_ffff();
         gen_op_addl_A0_seg(offsetof(CPUX86State,segs[R_ES].base));
     }
@@ -1374,6 +1405,57 @@ static void gen_op(DisasContext *s1, int op, int ot, int d)
  the_end: ;
 }
 
+//TEMU special
+/* if d == OR_TMP0, it means memory operand (address in A0) */
+static void gen_op_and_zero(DisasContext *s1, int ot, int d)
+{
+    GenOpFunc *gen_update_cc;
+#if 0 //in this case, we don't need to read it   --Heng Yin
+    if (d != OR_TMP0) {
+        gen_op_mov_TN_reg[ot][0][d]();
+    } else {
+        gen_op_ld_T0_A0[ot + s1->mem_index]();
+    }
+#endif    
+    gen_op_movl_T0_im(0);
+    s1->cc_op = CC_OP_LOGICB + ot;
+    gen_update_cc = gen_op_update1_cc;
+    if (d != OR_TMP0)
+        gen_op_mov_reg_T0[ot][d]();
+    else
+        gen_op_st_T0_A0[ot + s1->mem_index]();
+
+    /* the flags update must happen after the memory write (precise
+       exception support) */
+    if (gen_update_cc)
+        gen_update_cc();
+}
+
+//TEMU special
+static void gen_op_or_ones(DisasContext *s1, int ot, int d)
+{
+    GenOpFunc *gen_update_cc;
+#if 0 //in this case, we don't need to read it -- Heng Yin   
+    if (d != OR_TMP0) {
+        gen_op_mov_TN_reg[ot][0][d]();
+    } else {
+        gen_op_ld_T0_A0[ot + s1->mem_index]();
+    }
+#endif
+    gen_op_movl_T0_imu(0xffffffff);
+    s1->cc_op = CC_OP_LOGICB + ot;
+    gen_update_cc = gen_op_update1_cc;
+    if (d != OR_TMP0)
+        gen_op_mov_reg_T0[ot][d]();
+    else
+        gen_op_st_T0_A0[ot + s1->mem_index]();
+
+    /* the flags update must happen after the memory write (precise
+       exception support) */
+    if (gen_update_cc)
+        gen_update_cc();
+}
+
 /* if d == OR_TMP0, it means memory operand (address in A0) */
 static void gen_inc(DisasContext *s1, int ot, int d, int c)
 {
@@ -1788,7 +1870,7 @@ static inline void gen_jcc(DisasContext *s, int b,
     inv = b & 1;
     jcc_op = (b >> 1) & 7;
 
-    if (s->jmp_opt) {
+	if (s->jmp_opt) {
         switch(s->cc_op) {
             /* we optimize the cmp/jcc case */
         case CC_OP_SUBB:
@@ -1873,6 +1955,10 @@ static inline void gen_jcc(DisasContext *s, int b,
         tb = s->tb;
 
         l1 = gen_new_label();
+#if TAINT_FLAGS
+        if(func == gen_op_jnz_T0_label)
+          gen_op_taintcheck_jnz_T0_label(l1);
+#endif
         func(l1);
 
         gen_goto_tb(s, 0, next_eip);
@@ -1895,6 +1981,9 @@ static inline void gen_jcc(DisasContext *s, int b,
         }
         l1 = gen_new_label();
         l2 = gen_new_label();
+#if TAINT_FLAGS
+	gen_op_taintcheck_jnz_T0_label(l1);
+#endif
         gen_op_jnz_T0_label(l1);
         gen_jmp_im(next_eip);
         gen_op_jmp_label(l2);
@@ -2372,6 +2461,12 @@ static void gen_eob(DisasContext *s)
 	gen_op_single_step();
     } else {
         gen_op_movl_T0_0();
+#ifdef DEFINE_INSN_END
+	gen_op_insn_end();
+#endif
+#ifdef DEFINE_BLOCK_END
+	gen_op_block_end();
+#endif
         gen_op_exit_tb();
     }
     s->is_jmp = 3;
@@ -3235,6 +3330,9 @@ static void gen_sse(DisasContext *s, int b, target_ulong pc_start, int rex_r)
     }
 }
 
+#if TAINT_ENABLED
+#include "opt_translate.c"
+#endif
 
 /* convert one instruction. s->is_jmp is set if the translation must
    be stopped. Return the next pc value */
@@ -3416,6 +3514,15 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
                     gen_op_update1_cc();
                     break;
                 } else {
+#if TAINT_ENABLED
+				  	if(rm == reg && (
+#if TAINT_FLAGS == 0
+						  (b>=0x18 && b<=0x1b) || 
+#endif
+						  (b>=0x28 && b<=0x2b))) {
+						gen_op_taintcheck_mov_i2r(REG_ID(reg,ot), 1<<ot);
+					}
+#endif
                     opreg = rm;
                 }
                 gen_op_mov_TN_reg[ot][1][reg]();
@@ -3432,14 +3539,43 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
                 } else if (op == OP_XORL && rm == reg) {
                     goto xor_zero;
                 } else {
+#if TAINT_ENABLED
+					if(rm == reg && (
+#if TAINT_FLAGS == 0 
+						  (b>=0x18 && b<=0x1b) || 
+#endif
+						  (b>=0x28 && b<=0x2b))) 
+						gen_op_taintcheck_mov_i2r(REG_ID(reg,ot), 1<<ot);
+#endif
                     gen_op_mov_TN_reg[ot][1][rm]();
                 }
                 gen_op(s, op, ot, reg);
                 break;
             case 2: /* OP A, Iv */
                 val = insn_get(s, ot);
+#if TAINT_ENABLED && defined(CHECK_IMMEDIATE)
+				gen_op_opt_movl_T1_im(val);
+				gen_op_taintcheck_code2TN(s->pc-(1<<ot), R_T1*4, 1<<ot);
+#else	
                 gen_op_movl_T1_im(val);
-                gen_op(s, op, ot, OR_EAX);
+#endif
+                if(op == OP_ANDL && val == 0) 
+                    gen_op_and_zero(s, ot, OR_EAX);
+                else if(op == OP_ORL) {
+                    switch(ot) {
+                    case 0: if((char)val == -1) gen_op_or_ones(s, ot, OR_EAX);
+                            else gen_op(s, op, ot, OR_EAX);
+                            break;
+                    case 1: if((short)val == -1) gen_op_or_ones(s, ot, OR_EAX);
+                            else gen_op(s, op, ot, OR_EAX);
+                            break;
+                    case 2: if((long)val == -1) gen_op_or_ones(s, ot, OR_EAX);
+                            else gen_op(s, op, ot, OR_EAX);
+                            break;
+                    }
+                } 
+                else
+                    gen_op(s, op, ot, OR_EAX);
                 break;
             }
         }
@@ -3484,8 +3620,31 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
                 val = (int8_t)insn_get(s, OT_BYTE);
                 break;
             }
+#if TAINT_ENABLED && defined(CHECK_IMMEDIATE)
+			gen_op_opt_movl_T1_im(val);
+			{
+			  int size = (b==0x83)? 1: 1<<ot;
+			  gen_op_taintcheck_code2TN(s->pc-size, R_T1*4, size);
+			}
+#else
             gen_op_movl_T1_im(val);
-            gen_op(s, op, ot, opreg);
+#endif
+            if(op == OP_ANDL && val == 0)
+                gen_op_and_zero(s, ot, opreg);
+            else if(op == OP_ORL) {
+                switch(ot) {
+                case 0: if((char)val == -1) gen_op_or_ones(s, ot, opreg);
+                        else gen_op(s, op, ot, opreg);
+                        break;
+                case 1: if((short)val == -1) gen_op_or_ones(s, ot, opreg);
+                        else gen_op(s, op, ot, opreg);
+                        break;
+                case 2: if((long)val == -1) gen_op_or_ones(s, ot, opreg);
+                        else gen_op(s, op, ot, opreg);
+                        break;
+                } 
+            } else 
+                gen_op(s, op, ot, opreg);
         }
         break;
 
@@ -3522,7 +3681,12 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         switch(op) {
         case 0: /* test */
             val = insn_get(s, ot);
+#if TAINT_ENABLED && defined(CHECK_IMMEDIATE) 
+			gen_op_opt_movl_T1_im(val);
+			gen_op_taintcheck_code2TN(s->pc-(1<<ot), R_T1*4, 1<<ot);
+#else
             gen_op_movl_T1_im(val);
+#endif
             gen_op_testl_T0_T1_cc();
             s->cc_op = CC_OP_LOGICB + ot;
             break;
@@ -3697,8 +3861,17 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
                 gen_op_andl_T0_ffff();
             next_eip = s->pc - s->cs_base;
             gen_movtl_T1_im(next_eip);
+#ifdef IMPACT_ANALYSIS
+			gen_op_set_impact_propagate(0);
+#endif			
             gen_push_T1(s);
+#ifdef IMPACT_ANALYSIS
+			gen_op_set_impact_propagate(1);
+#endif
             gen_op_jmp_T0();
+#ifdef CALLSTRING_ANALYSIS
+			gen_op_call_check(next_eip);
+#endif
             gen_eob(s);
             break;
         case 3: /* lcall Ev */
@@ -3714,6 +3887,9 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             } else {
                 gen_op_lcall_real_T0_T1(dflag, s->pc - s->cs_base);
             }
+#ifdef CALLSTRING_ANALYSIS
+			gen_op_call_check(s->pc - s->cs_base);
+#endif
             gen_eob(s);
             break;
         case 4: /* jmp Ev */
@@ -3774,7 +3950,12 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         val = insn_get(s, ot);
 
         gen_op_mov_TN_reg[ot][0][OR_EAX]();
+#if TAINT_ENABLED && defined(CHECK_IMMEDIATE)
+		gen_op_opt_movl_T1_im(val);
+		gen_op_taintcheck_code2TN(s->pc-(1<<ot), R_T1*4, 1<<ot);
+#else
         gen_op_movl_T1_im(val);
+#endif		
         gen_op_testl_T0_T1_cc();
         s->cc_op = CC_OP_LOGICB + ot;
         break;
@@ -3900,8 +4081,14 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         /**************************/
         /* push/pop */
     case 0x50 ... 0x57: /* push */
+#if TAINT_ENABLED
+        gen_op_opt_mov_TN_reg[OT_LONG][0][(b & 7) | REX_B(s)]();
+        gen_opt_push_T0(s);
+        gen_op_taintcheck_mov_r2m(-1, -1, REG_ID((b&7)|REX_B(s), OT_LONG));
+#else
         gen_op_mov_TN_reg[OT_LONG][0][(b & 7) | REX_B(s)]();
         gen_push_T0(s);
+#endif        
         break;
     case 0x58 ... 0x5f: /* pop */
         if (CODE64(s)) {
@@ -3909,10 +4096,19 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         } else {
             ot = dflag + OT_WORD;
         }
-        gen_pop_T0(s);
+#if TAINT_ENABLED
+        gen_opt_pop_T0(s);
+#else 
+		gen_pop_T0(s);
+#endif
         /* NOTE: order is important for pop %sp */
         gen_pop_update(s);
+#if TAINT_ENABLED
+        gen_op_opt_mov_reg_T0[ot][(b & 7) | REX_B(s)]();
+        gen_op_taintcheck_mov_m2r(-1, -1, REG_ID((b & 7) | REX_B(s),ot));
+#else
         gen_op_mov_reg_T0[ot][(b & 7) | REX_B(s)]();
+#endif
         break;
     case 0x60: /* pusha */
         if (CODE64(s))
@@ -3935,8 +4131,23 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             val = insn_get(s, ot);
         else
             val = (int8_t)insn_get(s, OT_BYTE);
+#if TAINT_ENABLED
+        gen_op_opt_movl_T0_im(val);
+        gen_opt_push_T0(s);
+#ifdef CHECK_IMMEDIATE
+		{
+		  int size = (b==0x68)? 1<<ot: 1;
+		  gen_op_taintcheck_code2TN(s->pc-size, R_T0*4, size);
+		  gen_op_taintcheck_mov_r2m(-1, -1, R_T0*4);
+		}
+#else
+        gen_op_taintcheck_mov_i2m();
+#endif		
+
+#else  //TAINT_ENABLED
         gen_op_movl_T0_im(val);
         gen_push_T0(s);
+#endif
         break;
     case 0x8f: /* pop Ev */
         if (CODE64(s)) {
@@ -3970,6 +4181,10 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         }
         break;
     case 0xc9: /* leave */
+#if TAINT_ENABLED
+          gen_op_taint_patch();
+#endif
+
         /* XXX: exception not precise (ESP is updated before potential exception) */
         if (CODE64(s)) {
             gen_op_mov_TN_reg[OT_QUAD][0][R_EBP]();
@@ -3997,12 +4212,22 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         if (CODE64(s))
             goto illegal_op;
         gen_op_movl_T0_seg(b >> 3);
+#if TAINT_ENABLED
+        gen_opt_push_T0(s);
+        gen_op_taintcheck_mov_i2m();
+#else
         gen_push_T0(s);
+#endif        
         break;
     case 0x1a0: /* push fs */
     case 0x1a8: /* push gs */
         gen_op_movl_T0_seg((b >> 3) & 7);
-        gen_push_T0(s);
+#if TAINT_ENABLED
+        gen_opt_push_T0(s);
+        gen_op_taintcheck_mov_i2m();
+#else
+	    gen_push_T0(s);
+#endif	            
         break;
     case 0x07: /* pop es */
     case 0x17: /* pop ss */
@@ -4049,7 +4274,15 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         reg = ((modrm >> 3) & 7) | rex_r;
 
         /* generate a generic store */
+#if TAINT_ENABLED
+        gen_opt_ldst_modrm(s, modrm, ot, reg, 1);
+        if(s->ldst_reg<0) 
+            gen_op_taintcheck_mov_r2m(s->modrm_base, s->modrm_index, REG_ID(reg, ot));
+        else
+            gen_op_taintcheck_mov_r2r(REG_ID(reg,ot), REG_ID(s->ldst_reg,ot), 1<<ot);
+#else
         gen_ldst_modrm(s, modrm, ot, reg, 1);
+#endif            
         break;
     case 0xc6:
     case 0xc7: /* mov Ev, Iv */
@@ -4061,14 +4294,40 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         mod = (modrm >> 6) & 3;
         if (mod != 3) {
             s->rip_offset = insn_const_size(ot);
-            gen_lea_modrm(s, modrm, &reg_addr, &offset_addr);
+#if TAINT_ENABLED
+            gen_opt_lea_modrm(s, modrm, &reg_addr, &offset_addr);
+#else
+			gen_lea_modrm(s, modrm, &reg_addr, &offset_addr);
+#endif			            
         }
         val = insn_get(s, ot);
+#if TAINT_ENABLED
+        gen_op_opt_movl_T0_im(val);
+#else
         gen_op_movl_T0_im(val);
-        if (mod != 3)
+#endif
+        if (mod != 3) {
+#if TAINT_ENABLED        
+            gen_op_opt_st_T0_A0[ot + s->mem_index]();
+#ifdef CHECK_IMMEDIATE
+			gen_op_taintcheck_code2TN(s->pc-(1<<ot), R_T0*4, 1<<ot);
+			gen_op_taintcheck_mov_r2m(s->modrm_base, s->modrm_index, R_T0*4);
+#else
+            gen_op_taintcheck_mov_i2m();
+#endif
+
+#else
             gen_op_st_T0_A0[ot + s->mem_index]();
-        else
+#endif
+		}
+        else {
+#if TAINT_ENABLED
+            gen_op_opt_mov_reg_T0[ot][(modrm & 7) | REX_B(s)]();
+            gen_op_taintcheck_mov_i2r(REG_ID((modrm&7)|REX_B(s), ot), 1<<ot);
+#else
             gen_op_mov_reg_T0[ot][(modrm & 7) | REX_B(s)]();
+#endif
+		}
         break;
     case 0x8a:
     case 0x8b: /* mov Ev, Gv */
@@ -4079,8 +4338,18 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         modrm = ldub_code(s->pc++);
         reg = ((modrm >> 3) & 7) | rex_r;
 
+#if TAINT_ENABLED        
+        gen_opt_ldst_modrm(s, modrm, ot, OR_TMP0, 0);
+        gen_op_opt_mov_reg_T0[ot][reg]();
+        if(s->ldst_reg>=0) 
+            gen_op_taintcheck_mov_r2r(REG_ID(s->ldst_reg, ot), REG_ID(reg,ot), 1<<ot);
+        else {
+            gen_op_taintcheck_mov_m2r(s->modrm_base, s->modrm_index, REG_ID(reg,ot));
+		}
+#else
         gen_ldst_modrm(s, modrm, ot, OR_TMP0, 0);
         gen_op_mov_reg_T0[ot][reg]();
+#endif
         break;
     case 0x8e: /* mov seg, Gv */
         modrm = ldub_code(s->pc++);
@@ -4235,8 +4504,19 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         break;
     case 0xb0 ... 0xb7: /* mov R, Ib */
         val = insn_get(s, OT_BYTE);
+#if TAINT_ENABLED        
+        gen_op_opt_movl_T0_im(val);
+        gen_op_opt_mov_reg_T0[OT_BYTE][(b & 7) | REX_B(s)]();
+#ifdef CHECK_IMMEDIATE
+		gen_op_taintcheck_code2TN(s->pc-1, REG_ID((b & 7) | REX_B(s), 0), 1);
+#else
+        gen_op_taintcheck_mov_i2r(REG_ID((b & 7) | REX_B(s), 0), 1);
+#endif
+
+#else
         gen_op_movl_T0_im(val);
         gen_op_mov_reg_T0[OT_BYTE][(b & 7) | REX_B(s)]();
+#endif
         break;
     case 0xb8 ... 0xbf: /* mov R, Iv */
 #ifdef TARGET_X86_64
@@ -4254,8 +4534,20 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             ot = dflag ? OT_LONG : OT_WORD;
             val = insn_get(s, ot);
             reg = (b & 7) | REX_B(s);
+#if TAINT_ENABLED 
+            gen_op_opt_movl_T0_im(val);
+#ifdef CHECK_IMMEDIATE
+			gen_op_taintcheck_code2TN(s->pc-(1<<ot), R_T0*4, 1<<ot);
+			gen_op_mov_reg_T0[ot][reg]();
+#else
+            gen_op_opt_mov_reg_T0[ot][reg]();
+            gen_op_taintcheck_mov_i2r(REG_ID(reg, ot), 1<<ot);
+#endif
+         
+#else //TAINT_ENABLED == 0
             gen_op_movl_T0_im(val);
-            gen_op_mov_reg_T0[ot][reg]();
+			gen_op_mov_reg_T0[ot][reg]();
+#endif            
         }
         break;
 
@@ -5152,8 +5444,22 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             tval += next_eip;
             if (s->dflag == 0)
                 tval &= 0xffff;
+#if TAINT_ENABLED == 0                 
             gen_movtl_T0_im(next_eip);
-            gen_push_T0(s);
+			gen_push_T0(s);
+#else            
+            gen_op_opt_movl_T0_im(next_eip);
+            gen_opt_push_T0(s);
+            gen_op_taintcheck_mov_i2m();
+#ifdef CHECK_IMMEDIATE 
+			gen_op_taintcheck_code2TN(s->pc-(dflag?4:2), R_T1*4, dflag?4:2);
+			gen_op_taintcheck_check_eip(R_T1);
+#endif
+
+#endif //TAINT_ENABLED == 0
+#ifdef CALLSTRING_ANALYSIS
+			gen_op_call_check(next_eip);
+#endif
             gen_jmp(s, tval);
         }
         break;
@@ -5179,6 +5485,10 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         tval += s->pc - s->cs_base;
         if (s->dflag == 0)
             tval &= 0xffff;
+#if TAINT_ENABLED && defined(CHECK_IMMEDIATE) 
+		gen_op_taintcheck_code2TN(s->pc-(dflag?4:2), R_T0*4, dflag?4:2);
+		gen_op_taintcheck_check_eip(R_T0);
+#endif
         gen_jmp(s, tval);
         break;
     case 0xea: /* ljmp im */
@@ -5192,7 +5502,12 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             selector = insn_get(s, OT_WORD);
 
             gen_op_movl_T0_im(selector);
+#if TAINT_ENABLED && defined(CHECK_IMMEDIATE)
+			gen_op_opt_movl_T1_imu(offset);
+			gen_op_taintcheck_code2TN(s->pc-2-(1<<ot), R_T1*4, 1<<ot);
+#else
             gen_op_movl_T1_imu(offset);
+#endif
         }
         goto do_ljmp;
     case 0xeb: /* jmp Jb */
@@ -5877,7 +6192,11 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
                 gen_op_movl_T0_env(offsetof(CPUX86State, idt.limit));
                 gen_op_st_T0_A0[OT_WORD + s->mem_index]();
                 gen_add_A0_im(s, 2);
+#if TAINT_ENABLED
+				gen_op_taintcheck_sidt_T0();
+#else
                 gen_op_movtl_T0_env(offsetof(CPUX86State, idt.base));
+#endif                
                 if (!s->dflag)
                     gen_op_andl_T0_im(0xffffff);
                 gen_op_st_T0_A0[CODE64(s) + OT_LONG + s->mem_index]();
@@ -6307,6 +6626,15 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
     /* lock generation */
     if (s->prefix & PREFIX_LOCK)
         gen_op_unlock();
+
+#if 1//TAINT_ENABLED
+    if(!s->is_jmp) {
+      gen_op_movl_eip_im(s->pc-s->cs_base);
+#ifdef DEFINE_INSN_END
+      gen_op_insn_end();
+#endif
+	}      
+#endif
     return s->pc;
  illegal_op:
     if (s->prefix & PREFIX_LOCK)
@@ -6734,12 +7062,12 @@ static inline int gen_intermediate_code_internal(CPUState *env,
     dc->code64 = (flags >> HF_CS64_SHIFT) & 1;
 #endif
     dc->flags = flags;
-    dc->jmp_opt = !(dc->tf || env->singlestep_enabled ||
-                    (flags & HF_INHIBIT_IRQ_MASK)
+    dc->jmp_opt = 0; //TEMU: we explicitly disable direct chaining here
+	 //!(dc->tf || env->singlestep_enabled ||
+     //               (flags & HF_INHIBIT_IRQ_MASK)
 #ifndef CONFIG_SOFTMMU
                     || (flags & HF_SOFTMMU_MASK)
 #endif
-                    );
 #if 0
     /* check addseg logic */
     if (!dc->addseg && (dc->vm86 || !dc->pe || !dc->code32))
@@ -6754,6 +7082,10 @@ static inline int gen_intermediate_code_internal(CPUState *env,
     dc->is_jmp = DISAS_NEXT;
     pc_ptr = pc_start;
     lj = -1;
+
+#ifdef DEFINE_BLOCK_BEGIN
+	gen_op_block_begin();
+#endif
 
     for(;;) {
         if (env->nb_breakpoints > 0) {
@@ -6775,6 +7107,9 @@ static inline int gen_intermediate_code_internal(CPUState *env,
             gen_opc_cc_op[lj] = dc->cc_op;
             gen_opc_instr_start[lj] = 1;
         }
+#if defined(DEFINE_INSN_BEGIN)
+	    gen_op_insn_begin(pc_ptr);
+#endif
         pc_ptr = disas_insn(dc, pc_ptr);
         /* stop translation if indicated */
         if (dc->is_jmp)

@@ -24,6 +24,7 @@
 #include "hw.h"
 #include "ps2.h"
 #include "console.h"
+#include "TEMU_main.h"
 
 /* debug PC keyboard */
 //#define DEBUG_KBD
@@ -168,6 +169,9 @@ uint32_t ps2_read_data(void *opaque)
         /* reassert IRQs if data left */
         s->update_irq(s->update_arg, q->count != 0);
     }
+
+    TEMU_read_keystroke(s);
+
     return val;
 }
 
@@ -549,6 +553,7 @@ static int ps2_mouse_load(QEMUFile* f, void* opaque, int version_id)
 void *ps2_kbd_init(void (*update_irq)(void *, int), void *update_arg)
 {
     PS2KbdState *s = (PS2KbdState *)qemu_mallocz(sizeof(PS2KbdState));
+	TEMU_KbdState = s;
 
     s->common.update_irq = update_irq;
     s->common.update_arg = update_arg;

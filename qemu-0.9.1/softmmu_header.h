@@ -70,12 +70,23 @@
 #define ADDR_READ addr_read
 #endif
 
+#if ACCESS_TYPE != (NB_MMU_MODES + 1) && TAINT_ENABLED
+#include "TD_softmmu_header.h"  
+#endif
+
+
 DATA_TYPE REGPARM(1) glue(glue(__ld, SUFFIX), MMUSUFFIX)(target_ulong addr,
                                                          int mmu_idx);
 void REGPARM(2) glue(glue(__st, SUFFIX), MMUSUFFIX)(target_ulong addr, DATA_TYPE v, int mmu_idx);
 
+#if TAINT_ENABLED
+DATA_TYPE REGPARM(1) glue(glue(__TC_ld, SUFFIX), MMUSUFFIX)(target_ulong addr,
+                                                         int mmu_idx, int regidx);
+void REGPARM(2) glue(glue(__TC_st, SUFFIX), MMUSUFFIX)(target_ulong addr, DATA_TYPE v, int mmu_idx, int regidx);
+#endif
+
 #if (DATA_SIZE <= 4) && (TARGET_LONG_BITS == 32) && defined(__i386__) && \
-    (ACCESS_TYPE < NB_MMU_MODES) && defined(ASM_SOFTMMU)
+    (ACCESS_TYPE < NB_MMU_MODES) && defined(ASM_SOFTMMU) && (TAINT_ENABLED==0)
 
 #define CPU_TLB_ENTRY_BITS 4
 
@@ -244,6 +255,29 @@ static inline RES_TYPE glue(glue(ld, USUFFIX), MEMSUFFIX)(target_ulong ptr)
     return res;
 }
 
+#if TAINT_ENABLED
+static inline RES_TYPE glue(glue(TC_ld, USUFFIX), MEMSUFFIX)(target_ulong ptr, int regidx)
+{
+    int index;
+    RES_TYPE res;
+    target_ulong addr;
+    unsigned long physaddr;
+    int mmu_idx;
+
+    addr = ptr;
+    index = (addr >> TARGET_PAGE_BITS) & (CPU_TLB_SIZE - 1);
+    mmu_idx = CPU_MMU_INDEX;
+    if (__builtin_expect(env->tlb_table[mmu_idx][index].ADDR_READ !=
+                         (addr & (TARGET_PAGE_MASK | (DATA_SIZE - 1))), 0)) {
+        res = glue(glue(__TC_ld, SUFFIX), MMUSUFFIX)(addr, mmu_idx, regidx);
+    } else {
+        physaddr = addr + env->tlb_table[mmu_idx][index].addend;
+        res = glue(glue(TC_ld, USUFFIX), _raw)((uint8_t *)physaddr, regidx);
+    }
+    return res;
+}
+#endif
+
 #if DATA_SIZE <= 2
 static inline int glue(glue(lds, SUFFIX), MEMSUFFIX)(target_ulong ptr)
 {
@@ -264,6 +298,29 @@ static inline int glue(glue(lds, SUFFIX), MEMSUFFIX)(target_ulong ptr)
     }
     return res;
 }
+
+#if TAINT_ENABLED
+static inline int glue(glue(TC_lds, SUFFIX), MEMSUFFIX)(target_ulong ptr, int regidx)
+{
+    int res, index;
+    target_ulong addr;
+    unsigned long physaddr;
+    int mmu_idx;
+
+    addr = ptr;
+    index = (addr >> TARGET_PAGE_BITS) & (CPU_TLB_SIZE - 1);
+    mmu_idx = CPU_MMU_INDEX;
+    if (__builtin_expect(env->tlb_table[mmu_idx][index].ADDR_READ !=
+                         (addr & (TARGET_PAGE_MASK | (DATA_SIZE - 1))), 0)) {
+        res = (DATA_STYPE)glue(glue(__TC_ld, SUFFIX), MMUSUFFIX)(addr, mmu_idx, regidx);
+    } else {
+        physaddr = addr + env->tlb_table[mmu_idx][index].addend;
+        res = glue(glue(TC_lds, SUFFIX), _raw)((uint8_t *)physaddr, regidx);
+    }
+    return res;
+}
+#endif
+
 #endif
 
 #if ACCESS_TYPE != (NB_MMU_MODES + 1)
@@ -288,6 +345,27 @@ static inline void glue(glue(st, SUFFIX), MEMSUFFIX)(target_ulong ptr, RES_TYPE 
         glue(glue(st, SUFFIX), _raw)((uint8_t *)physaddr, v);
     }
 }
+
+#if TAINT_ENABLED
+static inline void glue(glue(TC_st, SUFFIX), MEMSUFFIX)(target_ulong ptr, RES_TYPE v, int regidx)
+{
+    int index;
+    target_ulong addr;
+    unsigned long physaddr;
+    int mmu_idx;
+
+    addr = ptr;
+    index = (addr >> TARGET_PAGE_BITS) & (CPU_TLB_SIZE - 1);
+    mmu_idx = CPU_MMU_INDEX;
+    if (__builtin_expect(env->tlb_table[mmu_idx][index].addr_write !=
+                         (addr & (TARGET_PAGE_MASK | (DATA_SIZE - 1))), 0)) {
+        glue(glue(__TC_st, SUFFIX), MMUSUFFIX)(addr, v, mmu_idx, regidx);
+    } else {
+        physaddr = addr + env->tlb_table[mmu_idx][index].addend;
+        glue(glue(TC_st, SUFFIX), _raw)((uint8_t *)physaddr, v, regidx);
+    }
+}
+#endif
 
 #endif /* ACCESS_TYPE != (NB_MMU_MODES + 1) */
 

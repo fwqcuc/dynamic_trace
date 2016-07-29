@@ -14,7 +14,7 @@ struct syminfo *syminfos = NULL;
 /* Get LENGTH bytes from info's buffer, at target address memaddr.
    Transfer them to myaddr.  */
 int
-buffer_read_memory (memaddr, myaddr, length, info)
+_buffer_read_memory (memaddr, myaddr, length, info)
      bfd_vma memaddr;
      bfd_byte *myaddr;
      int length;

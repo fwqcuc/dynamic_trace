@@ -120,7 +120,11 @@ static inline int tlb_set_page(CPUState *env, target_ulong vaddr,
 #elif defined(__powerpc__)
 #define CODE_GEN_BUFFER_SIZE     (6 * 1024 * 1024)
 #else
-#define CODE_GEN_BUFFER_SIZE     (16 * 1024 * 1024)
+#if 1//TAINT_ENABLED
+#define CODE_GEN_BUFFER_SIZE     (4* 16 * 1024 * 1024 ) 
+#else
+#define CODE_GEN_BUFFER_SIZE     (16 * 1024 * 1024 )
+#endif
 #endif
 
 //#define CODE_GEN_BUFFER_SIZE     (128 * 1024)
@@ -129,7 +133,11 @@ static inline int tlb_set_page(CPUState *env, target_ulong vaddr,
 /* XXX: use a per code average code fragment size and modulate it
    according to the host CPU */
 #if defined(CONFIG_SOFTMMU)
+#if 1//TAINT_ENABLED
+#define CODE_GEN_AVG_BLOCK_SIZE 128*4 //128 !!!taintcheck!!!
+#else 
 #define CODE_GEN_AVG_BLOCK_SIZE 128
+#endif
 #else
 #define CODE_GEN_AVG_BLOCK_SIZE 64
 #endif
@@ -581,6 +589,9 @@ void kqemu_record_dump(void);
 
 static inline int kqemu_is_ok(CPUState *env)
 {
+extern int TEMU_emulation_started;
+    if(TEMU_emulation_started) return 0;
+
     return(env->kqemu_enabled &&
            (env->cr[0] & CR0_PE_MASK) &&
            !(env->hflags & HF_INHIBIT_IRQ_MASK) &&

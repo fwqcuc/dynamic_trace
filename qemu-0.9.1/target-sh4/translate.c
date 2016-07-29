@@ -1,6 +1,6 @@
 /*
  *  SH4 translation
- *
+ * 
  *  Copyright (c) 2005 Samuel Tardieu
  *
  * This library is free software; you can redistribute it and/or
@@ -57,20 +57,10 @@ typedef struct DisasContext {
     uint32_t fpscr;
     uint16_t opcode;
     uint32_t flags;
-    int bstate;
     int memidx;
     uint32_t delayed_pc;
     int singlestep_enabled;
 } DisasContext;
-
-enum {
-    BS_NONE     = 0, /* We go out of the TB without reaching a branch or an
-                      * exception condition
-                      */
-    BS_STOP     = 1, /* We want to stop translation for any reason */
-    BS_BRANCH   = 2, /* We reached a branch condition     */
-    BS_EXCP     = 3, /* We reached an exception condition */
-};
 
 #ifdef CONFIG_USER_ONLY
 
@@ -135,23 +125,17 @@ void cpu_dump_state(CPUState * env, FILE * f,
 void cpu_sh4_reset(CPUSH4State * env)
 {
 #if defined(CONFIG_USER_ONLY)
-    env->sr = SR_FD;            /* FD - kernel does lazy fpu context switch */
+    env->sr = 0x00000000;
 #else
     env->sr = 0x700000F0;	/* MD, RB, BL, I3-I0 */
 #endif
     env->vbr = 0;
     env->pc = 0xA0000000;
-#if defined(CONFIG_USER_ONLY)
-    env->fpscr = FPSCR_PR; /* value for userspace according to the kernel */
-    set_float_rounding_mode(float_round_nearest_even, &env->fp_status); /* ?! */
-#else
-    env->fpscr = 0x00040001; /* CPU reset value according to SH4 manual */
-    set_float_rounding_mode(float_round_to_zero, &env->fp_status);
-#endif
+    env->fpscr = 0x00040001;
     env->mmucr = 0;
 }
 
-CPUSH4State *cpu_sh4_init(const char *cpu_model)
+CPUSH4State *cpu_sh4_init(void)
 {
     CPUSH4State *env;
 
@@ -181,6 +165,15 @@ static void gen_goto_tb(DisasContext * ctx, int n, target_ulong dest)
 	gen_op_movl_imm_T0(0);
     }
     gen_op_movl_imm_PC(dest);
+    if (ctx->singlestep_enabled)
+	gen_op_debug();
+    gen_op_exit_tb();
+}
+
+/* Jump to pc after an exception */
+static void gen_jump_exception(DisasContext * ctx)
+{
+    gen_op_movl_imm_T0(0);
     if (ctx->singlestep_enabled)
 	gen_op_debug();
     gen_op_exit_tb();
@@ -221,7 +214,7 @@ static void gen_delayed_conditional_jump(DisasContext * ctx)
 
     l1 = gen_new_label();
     gen_op_jdelayed(l1);
-    gen_goto_tb(ctx, 1, ctx->pc + 2);
+    gen_goto_tb(ctx, 1, ctx->pc);
     gen_set_label(l1);
     gen_jump(ctx);
 }
@@ -243,16 +236,15 @@ static void gen_delayed_conditional_jump(DisasContext * ctx)
 		? (x) + 16 : (x))
 
 #define FREG(x) (ctx->fpscr & FPSCR_FR ? (x) ^ 0x10 : (x))
-#define XHACK(x) ((((x) & 1 ) << 4) | ((x) & 0xe))
+#define XHACK(x) (((x) & 1 ) << 4 | ((x) & 0xe ) << 1)
 #define XREG(x) (ctx->fpscr & FPSCR_FR ? XHACK(x) ^ 0x10 : XHACK(x))
-#define DREG(x) FREG(x) /* Assumes lsb of (x) is always 0 */
 
 #define CHECK_NOT_DELAY_SLOT \
   if (ctx->flags & (DELAY_SLOT | DELAY_SLOT_CONDITIONAL)) \
-  {gen_op_raise_slot_illegal_instruction (); ctx->bstate = BS_EXCP; \
+  {gen_op_raise_slot_illegal_instruction (); ctx->flags |= BRANCH_EXCEPTION; \
    return;}
 
-void _decode_opc(DisasContext * ctx)
+void decode_opc(DisasContext * ctx)
 {
 #if 0
     fprintf(stderr, "Translating opcode 0x%04x\n", ctx->opcode);
@@ -278,7 +270,7 @@ void _decode_opc(DisasContext * ctx)
     case 0x0038:		/* ldtlb */
 	assert(0);		/* XXXXX */
 	return;
-    case 0x002b:		/* rte */
+    case 0x004b:		/* rte */
 	CHECK_NOT_DELAY_SLOT gen_op_rte();
 	ctx->flags |= DELAY_SLOT;
 	ctx->delayed_pc = (uint32_t) - 1;
@@ -291,11 +283,11 @@ void _decode_opc(DisasContext * ctx)
 	return;
     case 0xfbfb:		/* frchg */
 	gen_op_frchg();
-	ctx->bstate = BS_STOP;
+	ctx->flags |= MODE_CHANGE;
 	return;
     case 0xf3fb:		/* fschg */
 	gen_op_fschg();
-	ctx->bstate = BS_STOP;
+	ctx->flags |= MODE_CHANGE;
 	return;
     case 0x0009:		/* nop */
 	return;
@@ -648,22 +640,29 @@ void _decode_opc(DisasContext * ctx)
 	gen_op_movl_rN_T0(REG(B7_4));
 	gen_op_xor_T0_rN(REG(B11_8));
 	return;
-    case 0xf00c: /* fmov {F,D,X}Rm,{F,D,X}Rn - FPSCR: Nothing */
-	if (ctx->fpscr & FPSCR_SZ) {
+    case 0xf00c:		/* fmov {F,D,X}Rm,{F,D,X}Rn */
+	if (ctx->fpscr & FPSCR_PR) {
+	    gen_op_fmov_drN_DT0(XREG(B7_4));
+	    gen_op_fmov_DT0_drN(XREG(B11_8));
+	} else if (ctx->fpscr & FPSCR_SZ) {
 	    if (ctx->opcode & 0x0110)
 		break; /* illegal instruction */
-	    gen_op_fmov_drN_DT0(DREG(B7_4));
-	    gen_op_fmov_DT0_drN(DREG(B11_8));
+	    gen_op_fmov_drN_DT0(XREG(B7_4));
+	    gen_op_fmov_DT0_drN(XREG(B11_8));
 	} else {
 	    gen_op_fmov_frN_FT0(FREG(B7_4));
 	    gen_op_fmov_FT0_frN(FREG(B11_8));
 	}
 	return;
-    case 0xf00a: /* fmov {F,D,X}Rm,@Rn - FPSCR: Nothing */
-	if (ctx->fpscr & FPSCR_SZ) {
+    case 0xf00a:		/* fmov {F,D,X}Rm,@Rn */
+	if (ctx->fpscr & FPSCR_PR) {
+	    gen_op_fmov_drN_DT0(XREG(B7_4));
+	    gen_op_movl_rN_T1(REG(B11_8));
+	    gen_op_stfq_DT0_T1(ctx);
+	} else if (ctx->fpscr & FPSCR_SZ) {
 	    if (ctx->opcode & 0x0010)
 		break; /* illegal instruction */
-	    gen_op_fmov_drN_DT0(DREG(B7_4));
+	    gen_op_fmov_drN_DT0(XREG(B7_4));
 	    gen_op_movl_rN_T1(REG(B11_8));
 	    gen_op_stfq_DT0_T1(ctx);
 	} else {
@@ -672,40 +671,54 @@ void _decode_opc(DisasContext * ctx)
 	    gen_op_stfl_FT0_T1(ctx);
 	}
 	return;
-    case 0xf008: /* fmov @Rm,{F,D,X}Rn - FPSCR: Nothing */
-	if (ctx->fpscr & FPSCR_SZ) {
+    case 0xf008:		/* fmov @Rm,{F,D,X}Rn */
+	if (ctx->fpscr & FPSCR_PR) {
+	    gen_op_movl_rN_T0(REG(B7_4));
+	    gen_op_ldfq_T0_DT0(ctx);
+	    gen_op_fmov_DT0_drN(XREG(B11_8));
+	} else if (ctx->fpscr & FPSCR_SZ) {
 	    if (ctx->opcode & 0x0100)
 		break; /* illegal instruction */
 	    gen_op_movl_rN_T0(REG(B7_4));
 	    gen_op_ldfq_T0_DT0(ctx);
-	    gen_op_fmov_DT0_drN(DREG(B11_8));
+	    gen_op_fmov_DT0_drN(XREG(B11_8));
 	} else {
 	    gen_op_movl_rN_T0(REG(B7_4));
 	    gen_op_ldfl_T0_FT0(ctx);
-	    gen_op_fmov_FT0_frN(FREG(B11_8));
+	    gen_op_fmov_FT0_frN(XREG(B11_8));
 	}
 	return;
-    case 0xf009: /* fmov @Rm+,{F,D,X}Rn - FPSCR: Nothing */
-	if (ctx->fpscr & FPSCR_SZ) {
+    case 0xf009:		/* fmov @Rm+,{F,D,X}Rn */
+	if (ctx->fpscr & FPSCR_PR) {
+	    gen_op_movl_rN_T0(REG(B7_4));
+	    gen_op_ldfq_T0_DT0(ctx);
+	    gen_op_fmov_DT0_drN(XREG(B11_8));
+	    gen_op_inc8_rN(REG(B7_4));
+	} else if (ctx->fpscr & FPSCR_SZ) {
 	    if (ctx->opcode & 0x0100)
 		break; /* illegal instruction */
 	    gen_op_movl_rN_T0(REG(B7_4));
 	    gen_op_ldfq_T0_DT0(ctx);
-	    gen_op_fmov_DT0_drN(DREG(B11_8));
+	    gen_op_fmov_DT0_drN(XREG(B11_8));
 	    gen_op_inc8_rN(REG(B7_4));
 	} else {
 	    gen_op_movl_rN_T0(REG(B7_4));
 	    gen_op_ldfl_T0_FT0(ctx);
-	    gen_op_fmov_FT0_frN(FREG(B11_8));
+	    gen_op_fmov_FT0_frN(XREG(B11_8));
 	    gen_op_inc4_rN(REG(B7_4));
 	}
 	return;
-    case 0xf00b: /* fmov {F,D,X}Rm,@-Rn - FPSCR: Nothing */
-	if (ctx->fpscr & FPSCR_SZ) {
+    case 0xf00b:		/* fmov {F,D,X}Rm,@-Rn */
+	if (ctx->fpscr & FPSCR_PR) {
+	    gen_op_dec8_rN(REG(B11_8));
+	    gen_op_fmov_drN_DT0(XREG(B7_4));
+	    gen_op_movl_rN_T1(REG(B11_8));
+	    gen_op_stfq_DT0_T1(ctx);
+	} else if (ctx->fpscr & FPSCR_SZ) {
 	    if (ctx->opcode & 0x0100)
 		break; /* illegal instruction */
 	    gen_op_dec8_rN(REG(B11_8));
-	    gen_op_fmov_drN_DT0(DREG(B7_4));
+	    gen_op_fmov_drN_DT0(XREG(B7_4));
 	    gen_op_movl_rN_T1(REG(B11_8));
 	    gen_op_stfq_DT0_T1(ctx);
 	} else {
@@ -715,26 +728,36 @@ void _decode_opc(DisasContext * ctx)
 	    gen_op_stfl_FT0_T1(ctx);
 	}
 	return;
-    case 0xf006: /* fmov @(R0,Rm),{F,D,X}Rm - FPSCR: Nothing */
-	if (ctx->fpscr & FPSCR_SZ) {
+    case 0xf006:		/* fmov @(R0,Rm),{F,D,X}Rm */
+	if (ctx->fpscr & FPSCR_PR) {
+	    gen_op_movl_rN_T0(REG(B7_4));
+	    gen_op_add_rN_T0(REG(0));
+	    gen_op_ldfq_T0_DT0(ctx);
+	    gen_op_fmov_DT0_drN(XREG(B11_8));
+	} else if (ctx->fpscr & FPSCR_SZ) {
 	    if (ctx->opcode & 0x0100)
 		break; /* illegal instruction */
 	    gen_op_movl_rN_T0(REG(B7_4));
 	    gen_op_add_rN_T0(REG(0));
 	    gen_op_ldfq_T0_DT0(ctx);
-	    gen_op_fmov_DT0_drN(DREG(B11_8));
+	    gen_op_fmov_DT0_drN(XREG(B11_8));
 	} else {
 	    gen_op_movl_rN_T0(REG(B7_4));
 	    gen_op_add_rN_T0(REG(0));
 	    gen_op_ldfl_T0_FT0(ctx);
-	    gen_op_fmov_FT0_frN(FREG(B11_8));
+	    gen_op_fmov_FT0_frN(XREG(B11_8));
 	}
 	return;
-    case 0xf007: /* fmov {F,D,X}Rn,@(R0,Rn) - FPSCR: Nothing */
-	if (ctx->fpscr & FPSCR_SZ) {
+    case 0xf007:		/* fmov {F,D,X}Rn,@(R0,Rn) */
+	if (ctx->fpscr & FPSCR_PR) {
+	    gen_op_fmov_drN_DT0(XREG(B7_4));
+	    gen_op_movl_rN_T1(REG(B11_8));
+	    gen_op_add_rN_T1(REG(0));
+	    gen_op_stfq_DT0_T1(ctx);
+	} else if (ctx->fpscr & FPSCR_SZ) {
 	    if (ctx->opcode & 0x0010)
 		break; /* illegal instruction */
-	    gen_op_fmov_drN_DT0(DREG(B7_4));
+	    gen_op_fmov_drN_DT0(XREG(B7_4));
 	    gen_op_movl_rN_T1(REG(B11_8));
 	    gen_op_add_rN_T1(REG(0));
 	    gen_op_stfq_DT0_T1(ctx);
@@ -743,49 +766,6 @@ void _decode_opc(DisasContext * ctx)
 	    gen_op_movl_rN_T1(REG(B11_8));
 	    gen_op_add_rN_T1(REG(0));
 	    gen_op_stfl_FT0_T1(ctx);
-	}
-	return;
-    case 0xf000: /* fadd Rm,Rn - FPSCR: R[PR,Enable.O/U/I]/W[Cause,Flag] */
-    case 0xf001: /* fsub Rm,Rn - FPSCR: R[PR,Enable.O/U/I]/W[Cause,Flag] */
-    case 0xf002: /* fmul Rm,Rn - FPSCR: R[PR,Enable.O/U/I]/W[Cause,Flag] */
-    case 0xf003: /* fdiv Rm,Rn - FPSCR: R[PR,Enable.O/U/I]/W[Cause,Flag] */
-    case 0xf004: /* fcmp/eq Rm,Rn - FPSCR: R[PR,Enable.V]/W[Cause,Flag] */
-    case 0xf005: /* fcmp/gt Rm,Rn - FPSCR: R[PR,Enable.V]/W[Cause,Flag] */
-	if (ctx->fpscr & FPSCR_PR) {
-	    if (ctx->opcode & 0x0110)
-		break; /* illegal instruction */
-	    gen_op_fmov_drN_DT1(DREG(B7_4));
-	    gen_op_fmov_drN_DT0(DREG(B11_8));
-	}
-	else {
-	    gen_op_fmov_frN_FT1(FREG(B7_4));
-	    gen_op_fmov_frN_FT0(FREG(B11_8));
-	}
-
-	switch (ctx->opcode & 0xf00f) {
-	case 0xf000:		/* fadd Rm,Rn */
-	    ctx->fpscr & FPSCR_PR ? gen_op_fadd_DT() : gen_op_fadd_FT();
-	    break;
-	case 0xf001:		/* fsub Rm,Rn */
-	    ctx->fpscr & FPSCR_PR ? gen_op_fsub_DT() : gen_op_fsub_FT();
-	    break;
-	case 0xf002:		/* fmul Rm,Rn */
-	    ctx->fpscr & FPSCR_PR ? gen_op_fmul_DT() : gen_op_fmul_FT();
-	    break;
-	case 0xf003:		/* fdiv Rm,Rn */
-	    ctx->fpscr & FPSCR_PR ? gen_op_fdiv_DT() : gen_op_fdiv_FT();
-	    break;
-	case 0xf004:		/* fcmp/eq Rm,Rn */
-	    return;
-	case 0xf005:		/* fcmp/gt Rm,Rn */
-	    return;
-	}
-
-	if (ctx->fpscr & FPSCR_PR) {
-	    gen_op_fmov_DT0_drN(DREG(B11_8));
-	}
-	else {
-	    gen_op_fmov_FT0_frN(FREG(B11_8));
 	}
 	return;
     }
@@ -806,7 +786,7 @@ void _decode_opc(DisasContext * ctx)
 	CHECK_NOT_DELAY_SLOT
 	    gen_conditional_jump(ctx, ctx->pc + 2,
 				 ctx->pc + 4 + B7_0s * 2);
-	ctx->bstate = BS_BRANCH;
+	ctx->flags |= BRANCH_CONDITIONAL;
 	return;
     case 0x8f00:		/* bf/s label */
 	CHECK_NOT_DELAY_SLOT
@@ -817,7 +797,7 @@ void _decode_opc(DisasContext * ctx)
 	CHECK_NOT_DELAY_SLOT
 	    gen_conditional_jump(ctx, ctx->pc + 4 + B7_0s * 2,
 				 ctx->pc + 2);
-	ctx->bstate = BS_BRANCH;
+	ctx->flags |= BRANCH_CONDITIONAL;
 	return;
     case 0x8d00:		/* bt/s label */
 	CHECK_NOT_DELAY_SLOT
@@ -880,10 +860,10 @@ void _decode_opc(DisasContext * ctx)
 	gen_op_stw_T0_T1(ctx);
 	return;
     case 0x8400:		/* mov.b @(disp,Rn),R0 */
-	gen_op_movl_rN_T0(REG(B7_4));
-	gen_op_addl_imm_T0(B3_0);
-	gen_op_ldb_T0_T0(ctx);
-	gen_op_movl_T0_rN(REG(0));
+	gen_op_movl_rN_T0(REG(0));
+	gen_op_movl_rN_T1(REG(B7_4));
+	gen_op_addl_imm_T1(B3_0);
+	gen_op_stb_T0_T1(ctx);
 	return;
     case 0x8500:		/* mov.w @(disp,Rn),R0 */
 	gen_op_movl_rN_T0(REG(B7_4));
@@ -909,7 +889,7 @@ void _decode_opc(DisasContext * ctx)
     case 0xc300:		/* trapa #imm */
 	CHECK_NOT_DELAY_SLOT gen_op_movl_imm_PC(ctx->pc);
 	gen_op_trapa(B7_0);
-	ctx->bstate = BS_BRANCH;
+	ctx->flags |= BRANCH;
 	return;
     case 0xc800:		/* tst #imm,R0 */
 	gen_op_tst_imm_rN(B7_0, REG(0));
@@ -1013,8 +993,8 @@ void _decode_opc(DisasContext * ctx)
     gen_op_movl_rN_T1 (REG(B11_8));				\
     gen_op_stl_T0_T1 (ctx);					\
     return;
-	LDST(sr, 0x400e, 0x4007, ldc, 0x0002, 0x4003, stc, ctx->bstate =
-	     BS_STOP;)
+	LDST(sr, 0x400e, 0x4007, ldc, 0x0002, 0x4003, stc, ctx->flags |=
+	     MODE_CHANGE;)
 	LDST(gbr, 0x401e, 0x4017, ldc, 0x0012, 0x4013, stc,)
 	LDST(vbr, 0x402e, 0x4027, ldc, 0x0022, 0x4023, stc,)
 	LDST(ssr, 0x403e, 0x4037, ldc, 0x0032, 0x4033, stc,)
@@ -1023,9 +1003,9 @@ void _decode_opc(DisasContext * ctx)
 	LDST(mach, 0x400a, 0x4006, lds, 0x000a, 0x4002, sts,)
 	LDST(macl, 0x401a, 0x4016, lds, 0x001a, 0x4012, sts,)
 	LDST(pr, 0x402a, 0x4026, lds, 0x002a, 0x4022, sts,)
-	LDST(fpul, 0x405a, 0x4056, lds, 0x005a, 0x4052, sts,)
-	LDST(fpscr, 0x406a, 0x4066, lds, 0x006a, 0x4062, sts, ctx->bstate =
-	     BS_STOP;)
+	LDST(fpul, 0x405a, 0x4056, lds, 0x005a, 0x0052, sts,)
+	LDST(fpscr, 0x406a, 0x4066, lds, 0x006a, 0x0062, sts, ctx->flags |=
+	     MODE_CHANGE;)
     case 0x00c3:		/* movca.l R0,@Rm */
 	gen_op_movl_rN_T0(REG(0));
 	gen_op_movl_rN_T1(REG(B11_8));
@@ -1091,88 +1071,29 @@ void _decode_opc(DisasContext * ctx)
     case 0x401b:		/* tas.b @Rn */
 	gen_op_tasb_rN(REG(B11_8));
 	return;
-    case 0xf00d: /* fsts FPUL,FRn - FPSCR: Nothing */
+    case 0xf00d:		/* fsts FPUL,FRn */
 	gen_op_movl_fpul_FT0();
 	gen_op_fmov_FT0_frN(FREG(B11_8));
 	return;
-    case 0xf01d: /* flds FRm,FPUL - FPSCR: Nothing */
+    case 0xf01d:		/* flds FRm.FPUL */
 	gen_op_fmov_frN_FT0(FREG(B11_8));
 	gen_op_movl_FT0_fpul();
 	return;
-    case 0xf02d: /* float FPUL,FRn/DRn - FPSCR: R[PR,Enable.I]/W[Cause,Flag] */
-	if (ctx->fpscr & FPSCR_PR) {
-	    if (ctx->opcode & 0x0100)
-		break; /* illegal instruction */
-	    gen_op_float_DT();
-	    gen_op_fmov_DT0_drN(DREG(B11_8));
-	}
-	else {
-	    gen_op_float_FT();
-	    gen_op_fmov_FT0_frN(FREG(B11_8));
-	}
-	return;
-    case 0xf03d: /* ftrc FRm/DRm,FPUL - FPSCR: R[PR,Enable.V]/W[Cause,Flag] */
-	if (ctx->fpscr & FPSCR_PR) {
-	    if (ctx->opcode & 0x0100)
-		break; /* illegal instruction */
-	    gen_op_fmov_drN_DT0(DREG(B11_8));
-	    gen_op_ftrc_DT();
-	}
-	else {
-	    gen_op_fmov_frN_FT0(FREG(B11_8));
-	    gen_op_ftrc_FT();
-	}
-	return;
-    case 0xf08d: /* fldi0 FRn - FPSCR: R[PR] */
-	if (!(ctx->fpscr & FPSCR_PR)) {
-	    gen_op_movl_imm_T0(0);
-	    gen_op_fmov_T0_frN(FREG(B11_8));
-	    return;
-	}
-	break;
-    case 0xf09d: /* fldi1 FRn - FPSCR: R[PR] */
-	if (!(ctx->fpscr & FPSCR_PR)) {
-	    gen_op_movl_imm_T0(0x3f800000);
-	    gen_op_fmov_T0_frN(FREG(B11_8));
-	    return;
-	}
-	break;
     }
 
     fprintf(stderr, "unknown instruction 0x%04x at pc 0x%08x\n",
 	    ctx->opcode, ctx->pc);
     gen_op_raise_illegal_instruction();
-    ctx->bstate = BS_EXCP;
+    ctx->flags |= BRANCH_EXCEPTION;
 }
 
-void decode_opc(DisasContext * ctx)
-{
-    uint32_t old_flags = ctx->flags;
-
-    _decode_opc(ctx);
-
-    if (old_flags & (DELAY_SLOT | DELAY_SLOT_CONDITIONAL)) {
-        if (ctx->flags & DELAY_SLOT_CLEARME) {
-            gen_op_store_flags(0);
-        }
-        ctx->flags = 0;
-        ctx->bstate = BS_BRANCH;
-        if (old_flags & DELAY_SLOT_CONDITIONAL) {
-	    gen_delayed_conditional_jump(ctx);
-        } else if (old_flags & DELAY_SLOT) {
-            gen_jump(ctx);
-	}
-
-    }
-}
-
-static inline int
-gen_intermediate_code_internal(CPUState * env, TranslationBlock * tb,
-                               int search_pc)
+int gen_intermediate_code_internal(CPUState * env, TranslationBlock * tb,
+				   int search_pc)
 {
     DisasContext ctx;
     target_ulong pc_start;
     static uint16_t *gen_opc_end;
+    uint32_t old_flags;
     int i, ii;
 
     pc_start = tb->pc;
@@ -1180,14 +1101,14 @@ gen_intermediate_code_internal(CPUState * env, TranslationBlock * tb,
     gen_opc_end = gen_opc_buf + OPC_MAX_SIZE;
     gen_opparam_ptr = gen_opparam_buf;
     ctx.pc = pc_start;
-    ctx.flags = (uint32_t)tb->flags;
-    ctx.bstate = BS_NONE;
+    ctx.flags = env->flags;
+    old_flags = 0;
     ctx.sr = env->sr;
     ctx.fpscr = env->fpscr;
     ctx.memidx = (env->sr & SR_MD) ? 1 : 0;
     /* We don't know if the delayed pc came from a dynamic or static branch,
        so assume it is a dynamic branch.  */
-    ctx.delayed_pc = -1; /* use delayed pc from env pointer */
+    ctx.delayed_pc = -1;
     ctx.tb = tb;
     ctx.singlestep_enabled = env->singlestep_enabled;
     nb_gen_labels = 0;
@@ -1201,14 +1122,18 @@ gen_intermediate_code_internal(CPUState * env, TranslationBlock * tb,
 #endif
 
     ii = -1;
-    while (ctx.bstate == BS_NONE && gen_opc_ptr < gen_opc_end) {
+    while ((old_flags & (DELAY_SLOT | DELAY_SLOT_CONDITIONAL)) == 0 &&
+	   (ctx.flags & (BRANCH | BRANCH_CONDITIONAL | MODE_CHANGE |
+			 BRANCH_EXCEPTION)) == 0 &&
+	   gen_opc_ptr < gen_opc_end && ctx.sr == env->sr) {
+	old_flags = ctx.flags;
 	if (env->nb_breakpoints > 0) {
 	    for (i = 0; i < env->nb_breakpoints; i++) {
 		if (ctx.pc == env->breakpoints[i]) {
 		    /* We have hit a breakpoint - make sure PC is up-to-date */
 		    gen_op_movl_imm_PC(ctx.pc);
 		    gen_op_debug();
-		    ctx.bstate = BS_EXCP;
+		    ctx.flags |= BRANCH_EXCEPTION;
 		    break;
 		}
 	    }
@@ -1221,7 +1146,6 @@ gen_intermediate_code_internal(CPUState * env, TranslationBlock * tb,
                     gen_opc_instr_start[ii++] = 0;
             }
             gen_opc_pc[ii] = ctx.pc;
-            gen_opc_hflags[ii] = ctx.flags;
             gen_opc_instr_start[ii] = 1;
         }
 #if 0
@@ -1239,36 +1163,28 @@ gen_intermediate_code_internal(CPUState * env, TranslationBlock * tb,
 	break;
 #endif
     }
-    if (env->singlestep_enabled) {
-        gen_op_debug();
-    } else {
-	switch (ctx.bstate) {
-        case BS_STOP:
-            /* gen_op_interrupt_restart(); */
-            /* fall through */
-        case BS_NONE:
-            if (ctx.flags) {
-                gen_op_store_flags(ctx.flags | DELAY_SLOT_CLEARME);
-	    }
-            gen_goto_tb(&ctx, 0, ctx.pc);
-            break;
-        case BS_EXCP:
-            /* gen_op_interrupt_restart(); */
-            gen_op_movl_imm_T0(0);
-            gen_op_exit_tb();
-            break;
-        case BS_BRANCH:
-        default:
-            break;
-	}
+
+    if (old_flags & DELAY_SLOT_CONDITIONAL) {
+	gen_delayed_conditional_jump(&ctx);
+    } else if (old_flags & DELAY_SLOT) {
+	gen_op_clr_delay_slot();
+	gen_jump(&ctx);
+    } else if (ctx.flags & BRANCH_EXCEPTION) {
+        gen_jump_exception(&ctx);
+    } else if ((ctx.flags & (BRANCH | BRANCH_CONDITIONAL)) == 0) {
+        gen_goto_tb(&ctx, 0, ctx.pc);
     }
 
+    if (env->singlestep_enabled) {
+	gen_op_debug();
+    }
     *gen_opc_ptr = INDEX_op_end;
     if (search_pc) {
         i = gen_opc_ptr - gen_opc_buf;
         ii++;
         while (ii <= i)
             gen_opc_instr_start[ii++] = 0;
+        tb->size = 0;
     } else {
         tb->size = ctx.pc - pc_start;
     }

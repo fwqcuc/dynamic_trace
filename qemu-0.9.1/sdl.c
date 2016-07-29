@@ -233,11 +233,11 @@ static void sdl_update_caption(void)
     }
 
     if (qemu_name)
-        snprintf(buf, sizeof(buf), "QEMU (%s)%s", qemu_name, status);
+        snprintf(buf, sizeof(buf), "TEMU (%s)%s", qemu_name, status);
     else
-        snprintf(buf, sizeof(buf), "QEMU%s", status);
+        snprintf(buf, sizeof(buf), "TEMU%s", status);
 
-    SDL_WM_SetCaption(buf, "QEMU");
+    SDL_WM_SetCaption(buf, "TEMU");
 }
 
 static void sdl_hide_cursor(void)

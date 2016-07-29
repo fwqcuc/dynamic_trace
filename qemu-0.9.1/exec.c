@@ -2582,6 +2582,7 @@ void cpu_physical_memory_rw(target_phys_addr_t addr, uint8_t *buf,
                 io_index = (pd >> IO_MEM_SHIFT) & (IO_MEM_NB_ENTRIES - 1);
                 /* XXX: could force cpu_single_env to NULL to avoid
                    potential bugs */
+				//FIXME: may need to check notdirty_mem_write case here --Heng Yin
                 if (l >= 4 && ((addr & 3) == 0)) {
                     /* 32 bit write access */
                     val = ldl_p(buf);
@@ -2604,6 +2605,9 @@ void cpu_physical_memory_rw(target_phys_addr_t addr, uint8_t *buf,
                 /* RAM case */
                 ptr = phys_ram_base + addr1;
                 memcpy(ptr, buf, l);
+#if TAINT_ENABLED
+                taintcheck_mem_clean(ptr, l);
+#endif
                 if (!cpu_physical_memory_is_dirty(addr1)) {
                     /* invalidate code */
                     tb_invalidate_phys_page_range(addr1, addr1 + l, 0);
@@ -2678,6 +2682,9 @@ void cpu_physical_memory_write_rom(target_phys_addr_t addr,
             /* ROM/RAM case */
             ptr = phys_ram_base + addr1;
             memcpy(ptr, buf, l);
+#if TAINT_ENABLED
+		    taintcheck_mem_clean(ptr, l);
+#endif	    
         }
         len -= l;
         buf += l;

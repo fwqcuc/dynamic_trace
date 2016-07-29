@@ -34,8 +34,7 @@ void loadSingle(const unsigned int Fn,const unsigned int *pMem)
    target_ulong addr = (target_ulong)(long)pMem;
    FPA11 *fpa11 = GET_FPA11();
    fpa11->fType[Fn] = typeSingle;
-   /* FIXME - handle failure of get_user() */
-   get_user_u32(fpa11->fpreg[Fn].fSingle, addr);
+   fpa11->fpreg[Fn].fSingle = tget32(addr);
 }
 
 static inline
@@ -47,15 +46,13 @@ void loadDouble(const unsigned int Fn,const unsigned int *pMem)
    p = (unsigned int*)&fpa11->fpreg[Fn].fDouble;
    fpa11->fType[Fn] = typeDouble;
 #ifdef WORDS_BIGENDIAN
-   /* FIXME - handle failure of get_user() */
-   get_user_u32(p[0], addr); /* sign & exponent */
-   get_user_u32(p[1], addr + 4);
+   p[0] = tget32(addr); /* sign & exponent */
+   p[1] = tget32(addr + 4);
 #else
-   /* FIXME - handle failure of get_user() */
-   get_user_u32(p[0], addr + 4);
-   get_user_u32(p[1], addr); /* sign & exponent */
+   p[0] = tget32(addr + 4);
+   p[1] = tget32(addr); /* sign & exponent */
 #endif
-}
+}   
 
 static inline
 void loadExtended(const unsigned int Fn,const unsigned int *pMem)
@@ -65,11 +62,10 @@ void loadExtended(const unsigned int Fn,const unsigned int *pMem)
    unsigned int *p;
    p = (unsigned int*)&fpa11->fpreg[Fn].fExtended;
    fpa11->fType[Fn] = typeExtended;
-   /* FIXME - handle failure of get_user() */
-   get_user_u32(p[0], addr);  /* sign & exponent */
-   get_user_u32(p[1], addr + 8);  /* ls bits */
-   get_user_u32(p[2], addr + 4);  /* ms bits */
-}
+   p[0] = tget32(addr);  /* sign & exponent */
+   p[1] = tget32(addr + 8);  /* ls bits */
+   p[2] = tget32(addr + 4);  /* ms bits */
+}   
 
 static inline
 void loadMultiple(const unsigned int Fn,const unsigned int *pMem)
@@ -80,28 +76,25 @@ void loadMultiple(const unsigned int Fn,const unsigned int *pMem)
    unsigned long x;
 
    p = (unsigned int*)&(fpa11->fpreg[Fn]);
-   /* FIXME - handle failure of get_user() */
-   get_user_u32(x, addr);
+   x = tget32(addr);
    fpa11->fType[Fn] = (x >> 14) & 0x00000003;
-
+   
    switch (fpa11->fType[Fn])
    {
       case typeSingle:
       case typeDouble:
       {
-         /* FIXME - handle failure of get_user() */
-         get_user_u32(p[0], addr + 8);  /* Single */
-         get_user_u32(p[1], addr + 4);  /* double msw */
+         p[0] = tget32(addr + 8);  /* Single */
+         p[1] = tget32(addr + 4);  /* double msw */
          p[2] = 0;        /* empty */
       }
-      break;
-
+      break; 
+   
       case typeExtended:
       {
-         /* FIXME - handle failure of get_user() */
-         get_user_u32(p[1], addr + 8);
-         get_user_u32(p[2], addr + 4);  /* msw */
-         p[0] = (x & 0x80003fff);
+         p[1] = tget32(addr + 8);
+         p[2] = tget32(addr + 4);  /* msw */
+         p[0] = (x & 0x80003fff);      
       }
       break;
    }
@@ -114,23 +107,22 @@ void storeSingle(const unsigned int Fn,unsigned int *pMem)
    FPA11 *fpa11 = GET_FPA11();
    float32 val;
    register unsigned int *p = (unsigned int*)&val;
-
+   
    switch (fpa11->fType[Fn])
    {
-      case typeDouble:
+      case typeDouble: 
          val = float64_to_float32(fpa11->fpreg[Fn].fDouble, &fpa11->fp_status);
       break;
 
-      case typeExtended:
+      case typeExtended: 
          val = floatx80_to_float32(fpa11->fpreg[Fn].fExtended, &fpa11->fp_status);
       break;
 
       default: val = fpa11->fpreg[Fn].fSingle;
    }
-
-   /* FIXME - handle put_user() failures */
-   put_user_u32(p[0], addr);
-}
+  
+   tput32(addr, p[0]);
+}   
 
 static inline
 void storeDouble(const unsigned int Fn,unsigned int *pMem)
@@ -142,7 +134,7 @@ void storeDouble(const unsigned int Fn,unsigned int *pMem)
 
    switch (fpa11->fType[Fn])
    {
-      case typeSingle:
+      case typeSingle: 
          val = float32_to_float64(fpa11->fpreg[Fn].fSingle, &fpa11->fp_status);
       break;
 
@@ -152,15 +144,14 @@ void storeDouble(const unsigned int Fn,unsigned int *pMem)
 
       default: val = fpa11->fpreg[Fn].fDouble;
    }
-   /* FIXME - handle put_user() failures */
 #ifdef WORDS_BIGENDIAN
-   put_user_u32(p[0], addr);	/* msw */
-   put_user_u32(p[1], addr + 4);	/* lsw */
+   tput32(addr, p[0]);	/* msw */
+   tput32(addr + 4, p[1]);	/* lsw */
 #else
-   put_user_u32(p[1], addr);	/* msw */
-   put_user_u32(p[0], addr + 4);	/* lsw */
+   tput32(addr, p[1]);	/* msw */
+   tput32(addr + 4, p[0]);	/* lsw */
 #endif
-}
+}   
 
 static inline
 void storeExtended(const unsigned int Fn,unsigned int *pMem)
@@ -169,25 +160,24 @@ void storeExtended(const unsigned int Fn,unsigned int *pMem)
    FPA11 *fpa11 = GET_FPA11();
    floatx80 val;
    register unsigned int *p = (unsigned int*)&val;
-
+   
    switch (fpa11->fType[Fn])
    {
-      case typeSingle:
+      case typeSingle: 
          val = float32_to_floatx80(fpa11->fpreg[Fn].fSingle, &fpa11->fp_status);
       break;
 
-      case typeDouble:
+      case typeDouble: 
          val = float64_to_floatx80(fpa11->fpreg[Fn].fDouble, &fpa11->fp_status);
       break;
 
       default: val = fpa11->fpreg[Fn].fExtended;
    }
-
-   /* FIXME - handle put_user() failures */
-   put_user_u32(p[0], addr); /* sign & exp */
-   put_user_u32(p[1], addr + 8);
-   put_user_u32(p[2], addr + 4); /* msw */
-}
+   
+   tput32(addr, p[0]); /* sign & exp */
+   tput32(addr + 8, p[1]);
+   tput32(addr + 4, p[2]); /* msw */
+}   
 
 static inline
 void storeMultiple(const unsigned int Fn,unsigned int *pMem)
@@ -195,26 +185,26 @@ void storeMultiple(const unsigned int Fn,unsigned int *pMem)
    target_ulong addr = (target_ulong)(long)pMem;
    FPA11 *fpa11 = GET_FPA11();
    register unsigned int nType, *p;
-
+   
    p = (unsigned int*)&(fpa11->fpreg[Fn]);
    nType = fpa11->fType[Fn];
-
+   
    switch (nType)
    {
       case typeSingle:
       case typeDouble:
       {
-         put_user_u32(p[0], addr + 8); /* single */
-	 put_user_u32(p[1], addr + 4); /* double msw */
-	 put_user_u32(nType << 14, addr);
+	 tput32(addr + 8, p[0]); /* single */
+	 tput32(addr + 4, p[1]); /* double msw */
+	 tput32(addr, nType << 14);
       }
-      break;
-
+      break; 
+   
       case typeExtended:
       {
-         put_user_u32(p[2], addr + 4); /* msw */
-	 put_user_u32(p[1], addr + 8);
-	 put_user_u32((p[0] & 0x80003fff) | (nType << 14), addr);
+	 tput32(addr + 4, p[2]); /* msw */
+	 tput32(addr + 8, p[1]);
+	 tput32(addr, (p[0] & 0x80003fff) | (nType << 14));
       }
       break;
    }
@@ -249,7 +239,7 @@ unsigned int PerformLDF(const unsigned int opcode)
       case TRANSFER_EXTENDED: loadExtended(getFd(opcode),pAddress); break;
       default: nRc = 0;
    }
-
+   
    if (write_back) writeRegister(getRn(opcode),(unsigned int)pFinal);
    return nRc;
 }
@@ -258,10 +248,10 @@ unsigned int PerformSTF(const unsigned int opcode)
 {
    unsigned int *pBase, *pAddress, *pFinal, nRc = 1,
      write_back = WRITE_BACK(opcode);
-
+   
    //printk("PerformSTF(0x%08x), Fd = 0x%08x\n",opcode,getFd(opcode));
    SetRoundingMode(ROUND_TO_NEAREST);
-
+   
    pBase = (unsigned int*)readRegister(getRn(opcode));
    if (REG_PC == getRn(opcode))
    {
@@ -284,7 +274,7 @@ unsigned int PerformSTF(const unsigned int opcode)
       case TRANSFER_EXTENDED: storeExtended(getFd(opcode),pAddress); break;
       default: nRc = 0;
    }
-
+   
    if (write_back) writeRegister(getRn(opcode),(unsigned int)pFinal);
    return nRc;
 }
@@ -325,14 +315,14 @@ unsigned int PerformSFM(const unsigned int opcode)
 {
    unsigned int i, Fd, *pBase, *pAddress, *pFinal,
      write_back = WRITE_BACK(opcode);
-
+   
    pBase = (unsigned int*)readRegister(getRn(opcode));
    if (REG_PC == getRn(opcode))
    {
      pBase += 2;
      write_back = 0;
    }
-
+   
    pFinal = pBase;
    if (BIT_UP_SET(opcode))
      pFinal += getOffset(opcode);
@@ -359,7 +349,7 @@ unsigned int EmulateCPDT(const unsigned int opcode)
   unsigned int nRc = 0;
 
   //printk("EmulateCPDT(0x%08x)\n",opcode);
-
+  
   if (LDF_OP(opcode))
   {
     nRc = PerformLDF(opcode);
@@ -371,7 +361,7 @@ unsigned int EmulateCPDT(const unsigned int opcode)
   else if (STF_OP(opcode))
   {
     nRc = PerformSTF(opcode);
-  }
+  } 
   else if (SFM_OP(opcode))
   {
     nRc = PerformSFM(opcode);
@@ -380,7 +370,7 @@ unsigned int EmulateCPDT(const unsigned int opcode)
   {
     nRc = 0;
   }
-
+  
   return nRc;
 }
 #endif

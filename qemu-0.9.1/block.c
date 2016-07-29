@@ -450,6 +450,16 @@ void bdrv_delete(BlockDriverState *bs)
 {
     /* XXX: remove the driver list */
     bdrv_close(bs);
+
+    /* BEGIN: add by Heng Yin */
+    BlockDriverState **pbs;
+    for(pbs = &bdrv_first; *pbs != NULL; pbs = &(*pbs)->next) 
+    	if(*pbs == bs) {
+    		*pbs = bs->next;
+    		break;
+    	}  
+    /* END: add by Heng Yin */
+
     qemu_free(bs);
 }
 

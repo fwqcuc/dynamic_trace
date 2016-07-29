@@ -1,4 +1,4 @@
-/* Code for loading Linux executables.  Mostly linux kernel code.  */
+/* Code for loading Linux executables.  Mostly linux kenrel code.  */
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -13,17 +13,14 @@
 #define NGROUPS 32
 
 /* ??? This should really be somewhere else.  */
-abi_long memcpy_to_target(abi_ulong dest, const void *src,
-                          unsigned long len)
+void memcpy_to_target(target_ulong dest, const void *src,
+                      unsigned long len)
 {
     void *host_ptr;
 
-    host_ptr = lock_user(VERIFY_WRITE, dest, len, 0);
-    if (!host_ptr)
-        return -TARGET_EFAULT;
+    host_ptr = lock_user(dest, len, 0);
     memcpy(host_ptr, src, len);
     unlock_user(host_ptr, dest, 1);
-    return 0;
 }
 
 static int in_group_p(gid_t g)
@@ -112,49 +109,38 @@ static int prepare_binprm(struct linux_binprm *bprm)
 }
 
 /* Construct the envp and argv tables on the target stack.  */
-abi_ulong loader_build_argptr(int envc, int argc, abi_ulong sp,
-                              abi_ulong stringp, int push_ptr)
+target_ulong loader_build_argptr(int envc, int argc, target_ulong sp,
+                                 target_ulong stringp, int push_ptr)
 {
-    int n = sizeof(abi_ulong);
-    abi_ulong envp;
-    abi_ulong argv;
+    int n = sizeof(target_ulong);
+    target_ulong envp;
+    target_ulong argv;
 
     sp -= (envc + 1) * n;
     envp = sp;
     sp -= (argc + 1) * n;
     argv = sp;
     if (push_ptr) {
-        /* FIXME - handle put_user() failures */
-        sp -= n;
-        put_user_ual(envp, sp);
-        sp -= n;
-        put_user_ual(argv, sp);
+        sp -= n; tputl(sp, envp);
+        sp -= n; tputl(sp, argv);
     }
-    sp -= n;
-    /* FIXME - handle put_user() failures */
-    put_user_ual(argc, sp);
+    sp -= n; tputl(sp, argc);
 
     while (argc-- > 0) {
-        /* FIXME - handle put_user() failures */
-        put_user_ual(stringp, argv);
-        argv += n;
+        tputl(argv, stringp); argv += n;
         stringp += target_strlen(stringp) + 1;
     }
-    /* FIXME - handle put_user() failures */
-    put_user_ual(0, argv);
+    tputl(argv, 0);
     while (envc-- > 0) {
-        /* FIXME - handle put_user() failures */
-        put_user_ual(stringp, envp);
-        envp += n;
+        tputl(envp, stringp); envp += n;
         stringp += target_strlen(stringp) + 1;
     }
-    /* FIXME - handle put_user() failures */
-    put_user_ual(0, envp);
+    tputl(envp, 0);
 
     return sp;
 }
 
-int loader_exec(const char * filename, char ** argv, char ** envp,
+int loader_exec(const char * filename, char ** argv, char ** envp, 
              struct target_pt_regs * regs, struct image_info *infop)
 {
     struct linux_binprm bprm;
@@ -183,11 +169,7 @@ int loader_exec(const char * filename, char ** argv, char ** envp,
                 && bprm.buf[1] == 'E'
                 && bprm.buf[2] == 'L'
                 && bprm.buf[3] == 'F') {
-#ifndef TARGET_HAS_ELFLOAD32
             retval = load_elf_binary(&bprm,regs,infop);
-#else
-            retval = load_elf_binary_multi(&bprm, regs, infop);
-#endif
 #if defined(TARGET_HAS_BFLT)
         } else if (bprm.buf[0] == 'b'
                 && bprm.buf[1] == 'F'
@@ -200,7 +182,7 @@ int loader_exec(const char * filename, char ** argv, char ** envp,
             return -1;
         }
     }
-
+    
     if(retval>=0) {
         /* success.  Initialize important registers */
         do_init_thread(regs, infop);

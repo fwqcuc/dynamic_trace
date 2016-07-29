@@ -128,7 +128,7 @@
 #undef HAVE_SYS_STROPTS_H
 
 /* Define to whatever your compiler thinks inline should be */
-#define inline inline
+/* #define inline inline */
 
 /* Define to whatever your compiler thinks const should be */
 #define const const
